@@ -1,0 +1,26 @@
+# Binarios y artefactos de build
+ProxyGateway.exe
+lictool.exe
+*.exe
+*.test
+*.out
+
+# Datos privados del usuario (nunca subir)
+proxies*.txt
+proxy.txt
+lista.txt
+*.state.json
+Resultados/
+webhook.txt
+
+# Licencias: clave privada del emisor y licencias de clientes
+licencias/
+*.lic
+
+# Entorno / residuos de sesiones
+__pycache__/
+node_modules/
+zz_*
+tmp_*
+.DS_Store
+Thumbs.db

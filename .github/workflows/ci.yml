@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  go:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt
+        shell: pwsh
+        run: |
+          $bad = gofmt -l .
+          if ($bad) { Write-Host "sin formatear:"; $bad; exit 1 }
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: tests Go (unit + race)
+        run: go test -race -count=1 ./...
+
+      - name: build
+        run: go build -o ProxyGateway.exe .
+
+      - name: suite funcional (19)
+        run: python tests/run_tests.py
+
+      - name: Snyk (opcional - requiere secret SNYK_TOKEN)
+        shell: pwsh
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          if ($env:SNYK_TOKEN) {
+            npm install -g snyk
+            snyk code test --severity-threshold=high
+            snyk test --fail-on=all
+          } else {
+            Write-Host "sin SNYK_TOKEN: Snyk omitido en este fork"
+          }

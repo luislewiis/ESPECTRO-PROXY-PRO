@@ -1,0 +1,98 @@
+# Release firmado con SignPath Foundation (firma gratuita para open source)
+#
+# INACTIVO por diseño: solo se lanza a mano (workflow_dispatch), hasta que:
+#   1. El repo exista en GitHub publico y SignPath Foundation lo apruebe
+#      (https://signpath.org).
+#   2. Instales la GitHub App de SignPath
+#      (https://github.com/apps/signpath).
+#   3. Configures estos Secrets en Settings > Secrets and variables > Actions:
+#        SIGNPATH_API_TOKEN        - token de SignPath con permisos de submit
+#        SIGNPATH_ORGANIZATION_ID  - id de la organizacion SignPath
+#        SIGNPATH_PROJECT_SLUG     - slug del proyecto
+#        SIGNPATH_SIGNING_POLICY   - slug de la politica (p. ej. release-signing)
+#
+# El binario se construye con garble (ofuscado) en el runner hospedado por
+# GitHub, se sube como artifact y SignPath lo devuelve firmado.
+
+name: Release firmado
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version a imprimir con --version (p. ej. 1.0.0)"
+        required: true
+        default: "1.0.0"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  sign:
+    runs-on: windows-latest
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+      SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+      SIGNPATH_SIGNING_POLICY: ${{ secrets.SIGNPATH_SIGNING_POLICY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: garble (build ofuscado)
+        run: go install mvdan.cc/garble@latest
+
+      - name: build release
+        shell: pwsh
+        run: |
+          $ld = "-s -w -X main.version=${{ inputs.version }} -X main.buildDate=$(Get-Date -Format yyyy-MM-dd)"
+          garble -literals -tiny -seed=random build -trimpath -ldflags $ld -o ProxyGateway.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\ProxyGateway.exe --version
+
+      - name: tests Go sobre el binario
+        run: go test -race -count=1 ./...
+
+      - name: upload unsigned artifact
+        id: upload-unsigned-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProxyGateway-unsigned
+          path: ProxyGateway.exe
+          if-no-files-found: error
+
+      - name: submit signing request (SignPath)
+        if: ${{ env.SIGNPATH_API_TOKEN != '' }}
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ env.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY }}
+          github-artifact-id: ${{ steps.upload-unsigned-artifact.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: firma pendiente de configurar SignPath
+        if: ${{ env.SIGNPATH_API_TOKEN == '' }}
+        run: echo "::notice::Secrets de SignPath ausentes: binario sin firmar (ver cabecera de release.yml)"
+
+      - name: verify firma
+        if: ${{ env.SIGNPATH_API_TOKEN != '' }}
+        shell: pwsh
+        run: |
+          $s = Get-AuthenticodeSignature signed/ProxyGateway.exe
+          Write-Host "Status: $($s.Status) | Signer: $($s.SignerCertificate.Subject)"
+          if ($s.Status -ne 'Valid') { exit 1 }
+
+      - name: upload signed artifact
+        if: ${{ env.SIGNPATH_API_TOKEN != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProxyGateway-signed
+          path: signed/ProxyGateway.exe
+          if-no-files-found: error

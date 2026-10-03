@@ -1,0 +1,1743 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="gw-token" content="__GW_TOKEN__">
+<title>ESPECTRO PROXY PRO - Panel</title>
+<style>
+  :root{
+    --bg:#0a0d14;--bg2:#0e1220;--card:#131826;--card2:#171d2e;
+    --border:#232a3d;--border2:#2d3652;
+    --txt:#e8edf7;--muted:#8b94ad;--faint:#5c6580;
+    --green:#2bd97c;--red:#ff5d6c;--blue:#54a3ff;--amber:#ffb02e;
+    --violet:#a371f7;--cyan:#39d0d8;
+    --grad:linear-gradient(135deg,#54a3ff,#a371f7);
+    --shadow:0 8px 28px rgba(0,0,0,.35);
+    --r:14px;
+  }
+  *{box-sizing:border-box}
+  html{scrollbar-color:#2d3652 #0a0d14}
+  body{
+    margin:0;background:
+      radial-gradient(1000px 500px at 85% -10%,rgba(163,113,247,.10),transparent 60%),
+      radial-gradient(900px 450px at -10% 10%,rgba(84,163,255,.08),transparent 55%),
+      var(--bg);
+    color:var(--txt);
+    font:14px/1.55 "Segoe UI",system-ui,-apple-system,sans-serif;
+    min-height:100vh;
+  }
+  a{color:var(--blue);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .muted{color:var(--muted)}
+  .mono{font-family:Consolas,"Cascadia Mono",monospace}
+
+  /* ---------- header ---------- */
+  header{
+    position:sticky;top:0;z-index:50;
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:12px 22px;
+    background:rgba(14,18,32,.82);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--border);
+  }
+  .logo{display:flex;align-items:center;gap:10px}
+  .logo .mark{
+    width:34px;height:34px;border-radius:10px;background:var(--grad);
+    display:grid;place-items:center;box-shadow:0 4px 14px rgba(84,163,255,.35)
+  }
+  .logo h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.2px}
+  .logo h1 span{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .pill{
+    display:inline-flex;align-items:center;gap:7px;
+    padding:4px 12px;border-radius:99px;font-size:12px;font-weight:600;
+    background:var(--card2);border:1px solid var(--border2);color:var(--muted)
+  }
+  .pill .dot{width:8px;height:8px;border-radius:50%;background:var(--red);
+    box-shadow:0 0 8px currentColor;animation:pulse 2s infinite}
+  .pill.ok .dot{background:var(--green);box-shadow:0 0 8px var(--green)}
+  @keyframes pulse{50%{opacity:.45}}
+  header .right{margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .chip-strat{color:var(--violet);border-color:rgba(163,113,247,.4);
+    background:rgba(163,113,247,.10)}
+  .chip-updated{font-weight:400;color:var(--faint)}
+
+  main{max-width:1180px;margin:0 auto;padding:24px 22px 60px}
+
+  /* ---------- empty state ---------- */
+  #empty{
+    display:none;text-align:center;padding:44px 24px;margin-bottom:22px;
+    background:var(--card);border:1px dashed var(--border2);border-radius:var(--r);
+  }
+  #empty svg{opacity:.9}
+  #empty h3{margin:14px 0 6px;font-size:18px}
+  #empty p{color:var(--muted);margin:0 auto 18px;max-width:520px}
+  #empty .steps{
+    display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:18px 0 6px
+  }
+  #empty .step{
+    background:var(--card2);border:1px solid var(--border);border-radius:10px;
+    padding:10px 16px;font-size:13px;color:var(--muted);text-align:left;max-width:240px
+  }
+  #empty .step b{display:block;color:var(--txt);margin-bottom:2px}
+  #empty .step .n{
+    display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;
+    background:var(--grad);color:#fff;font-size:11px;font-weight:700;margin-right:6px
+  }
+
+  /* ---------- KPI cards ---------- */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
+  .kpi{
+    position:relative;background:linear-gradient(180deg,var(--card),var(--card2));
+    border:1px solid var(--border);border-radius:var(--r);padding:16px 16px 14px;
+    box-shadow:var(--shadow);overflow:hidden;
+    transition:transform .15s,border-color .15s;
+  }
+  .kpi:hover{transform:translateY(-2px);border-color:var(--border2)}
+  .kpi::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--accent,var(--blue))}
+  .kpi .ico{
+    position:absolute;right:12px;top:12px;width:30px;height:30px;border-radius:9px;
+    display:grid;place-items:center;background:color-mix(in srgb,var(--accent,var(--blue)) 14%,transparent);
+  }
+  .kpi .num{font-size:26px;font-weight:800;letter-spacing:-.5px;line-height:1.15}
+  .kpi .lbl{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-top:3px}
+  .kpi .sub{font-size:11px;color:var(--faint);margin-top:6px}
+  .healthbar{height:5px;border-radius:99px;background:#0b0e17;margin-top:9px;overflow:hidden;border:1px solid var(--border)}
+  .healthbar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--green),#7ee787);transition:width .5s}
+  .c-green{color:var(--green)}.c-blue{color:var(--blue)}.c-red{color:var(--red)}
+  .c-amber{color:var(--amber)}.c-violet{color:var(--violet)}.c-cyan{color:var(--cyan)}
+
+  /* ---------- toolbar ---------- */
+  .toolbar{
+    margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+    background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+    padding:14px 16px;box-shadow:var(--shadow)
+  }
+  .toolbar .group{display:flex;gap:8px;align-items:center}
+  .toolbar .sep{width:1px;height:26px;background:var(--border)}
+  .toolbar .spacer{flex:1}
+  label.fld{font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:center}
+  select,input[type=text]{
+    background:var(--bg2);color:var(--txt);border:1px solid var(--border2);
+    border-radius:9px;padding:8px 11px;font-size:13px;outline:none;transition:border .15s,box-shadow .15s
+  }
+  select:focus,input[type=text]:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(84,163,255,.18)}
+  button{
+    font:inherit;font-size:13px;font-weight:600;
+    background:var(--card2);color:var(--txt);border:1px solid var(--border2);
+    border-radius:9px;padding:8px 15px;cursor:pointer;transition:all .15s
+  }
+  button:hover{border-color:var(--blue);color:var(--blue);transform:translateY(-1px)}
+  button:active{transform:translateY(0)}
+  button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+  button.primary{
+    background:var(--grad);border:none;color:#fff;
+    box-shadow:0 4px 14px rgba(84,163,255,.35)
+  }
+  button.primary:hover{filter:brightness(1.1);color:#fff}
+  button.ghost-green:hover{border-color:var(--green);color:var(--green)}
+  .linkbox{
+    display:none;margin-top:14px;background:var(--bg2);
+    border:1px solid rgba(43,217,124,.5);border-radius:var(--r);padding:14px 16px;
+    box-shadow:var(--shadow)
+  }
+  .linkbox .title{font-size:12px;color:var(--green);font-weight:700;
+    text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+  .linkbox .url{font-family:Consolas,monospace;font-size:13px;word-break:break-all;color:#7ee787}
+  .linkbox .api{font-family:Consolas,monospace;font-size:12px;color:var(--muted);
+    word-break:break-all;margin-top:6px}
+  .linkbox .row{margin-top:10px;display:flex;gap:8px}
+
+  /* ---------- cargar proxies ---------- */
+  .importcard{
+    background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+    padding:18px;box-shadow:var(--shadow)
+  }
+  .itabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .itab{
+    padding:7px 16px;border-radius:9px;font-size:13px;font-weight:600;
+    background:var(--bg2);border:1px solid var(--border2);color:var(--muted);
+    cursor:pointer;transition:all .15s
+  }
+  .itab:hover{color:var(--txt)}
+  .itab.active{background:rgba(84,163,255,.14);border-color:rgba(84,163,255,.5);color:var(--blue)}
+  .drop{
+    border:2px dashed var(--border2);border-radius:12px;padding:24px 18px;text-align:center;
+    color:var(--muted);cursor:pointer;transition:all .15s;background:var(--bg2)
+  }
+  .drop:hover,.drop.over{border-color:var(--blue);background:rgba(84,163,255,.06);color:var(--txt)}
+  .drop b{color:var(--txt)}
+  .drop p{margin:8px 0 12px}
+  .filelist{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+  .filerow{
+    display:flex;gap:10px;align-items:center;background:var(--bg2);
+    border:1px solid var(--border);border-radius:10px;padding:9px 12px;font-size:13px;flex-wrap:wrap
+  }
+  .filerow .fname{font-weight:600;word-break:break-all}
+  .filerow .x{
+    margin-left:auto;background:none;border:none;color:var(--faint);
+    font-size:17px;cursor:pointer;padding:0 4px;line-height:1
+  }
+  .filerow .x:hover{color:var(--red)}
+  textarea{
+    width:100%;min-height:140px;resize:vertical;background:var(--bg2);color:var(--txt);
+    border:1px solid var(--border2);border-radius:10px;padding:12px;
+    font:13px/1.6 Consolas,"Cascadia Mono",monospace;outline:none;transition:all .15s
+  }
+  textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(84,163,255,.18)}
+  .irow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .irow input[type=text]{flex:1;min-width:230px}
+  .hint{font-size:12px;color:var(--faint)}
+  .valreport{
+    margin-top:12px;background:var(--bg2);border:1px solid var(--border);
+    border-radius:10px;padding:12px 14px
+  }
+  .chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .vchip{padding:4px 12px;border-radius:99px;font-size:12px;font-weight:700;border:1px solid transparent}
+  .vchip.ok{background:rgba(43,217,124,.12);color:var(--green);border-color:rgba(43,217,124,.35)}
+  .vchip.bad{background:rgba(255,93,108,.12);color:var(--red);border-color:rgba(255,93,108,.35)}
+  .vchip.dup{background:rgba(255,176,46,.12);color:var(--amber);border-color:rgba(255,176,46,.35)}
+  .vchip.ign{background:rgba(139,148,173,.12);color:var(--muted);border-color:var(--border2)}
+  .vchip.proto{background:rgba(163,113,247,.12);color:var(--violet);border-color:rgba(163,113,247,.35)}
+  .errlist{margin-top:10px;display:flex;flex-direction:column;gap:5px;max-height:160px;overflow-y:auto}
+  .errline{font:12px Consolas,monospace;display:flex;gap:10px;color:var(--red)}
+  .errline .ln{color:var(--faint);min-width:38px;text-align:right;flex:none}
+  .errline .why{color:var(--amber)}
+  .iactions{display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap}
+  .impresult{
+    margin-top:12px;background:rgba(43,217,124,.06);border:1px solid rgba(43,217,124,.35);
+    border-radius:10px;padding:12px 14px;font-size:13px;word-break:break-all
+  }
+  .impresult.bad{background:rgba(255,93,108,.06);border-color:rgba(255,93,108,.35)}
+
+  /* ---------- sections ---------- */
+  section{margin-top:26px}
+  .sec-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  .sec-head h2{
+    font-size:13px;margin:0;color:var(--muted);text-transform:uppercase;letter-spacing:.1em
+  }
+  .sec-head .line{flex:1;height:1px;background:linear-gradient(90deg,var(--border),transparent)}
+
+  /* ---------- table ---------- */
+  .tablewrap{
+    background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+    overflow:hidden;box-shadow:var(--shadow)
+  }
+  .tbl-tools{display:flex;gap:8px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .fchip{
+    padding:5px 13px;border-radius:99px;font-size:12px;font-weight:600;
+    background:var(--bg2);border:1px solid var(--border2);color:var(--muted);cursor:pointer;transition:all .15s
+  }
+  .fchip:hover{color:var(--txt);border-color:var(--border2)}
+  .fchip.active{background:rgba(84,163,255,.14);border-color:rgba(84,163,255,.5);color:var(--blue)}
+  .fchip b{font-weight:700}
+  button.fchip{font:inherit;font-size:12px;font-weight:600;padding:5px 13px;border-radius:99px}
+  .xbtn{background:none;border:none;color:var(--faint);font-size:16px;cursor:pointer;padding:0 6px;line-height:1;border-radius:6px}
+  .xbtn:hover{color:var(--red)}
+  td.ck input{cursor:pointer}
+  td.ck{text-align:center}
+  .tbl-tools input[type=text]{margin-left:auto;min-width:200px;padding:7px 12px}
+  .dl{font-size:12px;display:flex;gap:14px}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px 14px;text-align:left;font-size:13px;border-bottom:1px solid var(--border)}
+  th{color:var(--faint);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.07em;background:var(--card2)}
+  tbody tr{transition:background .12s}
+  tbody tr:hover{background:rgba(84,163,255,.05)}
+  tbody tr:last-child td{border-bottom:none}
+  td.idx{color:var(--faint);width:54px}
+td.ping{color:var(--faint);white-space:nowrap}
+  .scheme{
+    display:inline-block;padding:2px 9px;border-radius:6px;font-size:11px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.04em
+  }
+  .scheme.http{background:rgba(84,163,255,.14);color:var(--blue)}
+  .scheme.socks4{background:rgba(255,176,46,.14);color:var(--amber)}
+  .scheme.socks5,.scheme.socks4a{background:rgba(163,113,247,.14);color:var(--violet)}
+  .badge{
+    display:inline-flex;align-items:center;gap:6px;padding:3px 11px;border-radius:99px;
+    font-size:11px;font-weight:700;letter-spacing:.03em
+  }
+  .badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.badge.ok{background:rgba(43,217,124,.13);color:var(--green);box-shadow:inset 0 0 0 1px rgba(43,217,124,.35)}
+.badge.dead{background:rgba(255,93,108,.13);color:var(--red);box-shadow:inset 0 0 0 1px rgba(255,93,108,.35)}
+.badge.unchecked{background:rgba(160,160,170,.10);color:var(--faint);box-shadow:inset 0 0 0 1px rgba(160,160,170,.35)}
+  .fails{color:var(--muted);font-size:12px}
+  .fails.hot{color:var(--red);font-weight:700}
+  td.acts{white-space:nowrap;width:74px}
+  .rowbtn{
+    width:26px;height:26px;padding:0;margin-right:4px;border-radius:7px;cursor:pointer;
+    border:1px solid var(--border);background:var(--card2);color:var(--muted);font-size:13px;line-height:1
+  }
+  .rowbtn:hover{color:var(--blue);border-color:rgba(84,163,255,.5)}
+  .rowbtn.del:hover{color:var(--red);border-color:rgba(255,93,108,.55)}
+  .emptyrow td{color:var(--faint);text-align:center;padding:26px}
+
+  /* ---------- terminal ---------- */
+  .term{
+    background:#070a12;border:1px solid var(--border);border-radius:var(--r);
+    overflow:hidden;box-shadow:var(--shadow)
+  }
+  .term .bar{
+    display:flex;align-items:center;gap:8px;padding:9px 14px;
+    background:linear-gradient(180deg,#151b2c,#10151f);border-bottom:1px solid var(--border)
+  }
+  .term .bar i{width:11px;height:11px;border-radius:50%;display:block}
+  .term .bar i:nth-child(1){background:#ff5f57}
+  .term .bar i:nth-child(2){background:#febc2e}
+  .term .bar i:nth-child(3){background:#28c840}
+  .term .bar .t{margin-left:8px;font-size:12px;color:var(--faint);font-family:Consolas,monospace}
+  #logs,#bootInfo{
+    margin:0;padding:14px 16px;font:12px/1.7 Consolas,"Cascadia Mono",monospace;
+    color:#7ee787;max-height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-all
+  }
+  #bootInfo{color:#79c0ff}
+  #logs .logline,#bootInfo .logline{opacity:0;animation:fin .25s forwards}
+  @keyframes fin{to{opacity:1}}
+
+  /* ---------- toast ---------- */
+  #toast{
+    position:fixed;bottom:24px;right:24px;z-index:100;display:flex;flex-direction:column;gap:8px;align-items:flex-end
+  }
+  .toast-msg{
+    background:var(--card2);border:1px solid rgba(43,217,124,.55);color:var(--txt);
+    border-radius:11px;padding:11px 18px;font-size:13px;font-weight:600;
+    box-shadow:0 10px 30px rgba(0,0,0,.5);opacity:0;transform:translateY(8px);
+    transition:all .25s
+  }
+  .toast-msg.show{opacity:1;transform:translateY(0)}
+  .toast-msg.err{border-color:rgba(255,93,108,.55)}
+  .toast-msg::before{content:"✓";color:var(--green);margin-right:9px;font-weight:800}
+  .toast-msg.err::before{content:"!";color:var(--red)}
+
+  footer{
+    max-width:1180px;margin:0 auto;padding:18px 22px 34px;color:var(--faint);
+    font-size:12px;display:flex;gap:18px;flex-wrap:wrap;border-top:1px solid var(--border)
+  }
+  footer code{background:var(--card2);padding:2px 7px;border-radius:6px;font-size:11px;color:var(--muted)}
+
+  @media (max-width:720px){
+    .kpis{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+    .tbl-tools input[type=text]{width:100%;margin-left:0}
+    .toolbar .sep{display:none}
+    header{gap:8px}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="mark">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"
+        stroke-linecap="round" stroke-linejoin="round">
+        <path d="M13 2L4.09 12.97a1 1 0 0 0 .78 1.63H11l-1 7.4 8.91-10.97a1 1 0 0 0-.78-1.63H13l1-7.4z"/>
+      </svg>
+    </div>
+    <h1>ESPECTRO <span>PROXY PRO</span></h1>
+  </div>
+  <span class="pill" id="statusPill"><span class="dot"></span><span id="statusTxt">conectando…</span></span>
+  <span class="pill chip-strat" id="stratPill">estrategia: —</span>
+  <div class="right">
+    <span class="pill chip-updated" id="updated">—</span>
+    <a href="/" class="pill">API</a>
+  </div>
+</header>
+
+<main>
+  <!-- empty state -->
+  <div id="empty">
+    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#54a3ff" stroke-width="1.6"
+      stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="3" width="20" height="7" rx="2"/>
+      <rect x="2" y="14" width="20" height="7" rx="2"/>
+      <circle cx="6" cy="6.5" r=".8" fill="#54a3ff"/><circle cx="6" cy="17.5" r=".8" fill="#54a3ff"/>
+    </svg>
+    <h3>Sin proxies cargados</h3>
+    <p>El gateway está corriendo pero tu lista <span class="mono">proxies.txt</span> está vacía
+       (o solo tiene comentarios). Agrega proxies y recarga:</p>
+    <div class="steps">
+      <div class="step"><b><span class="n">1</span>Agrega proxies</b>Arrastra o pega archivos en
+        <b>Cargar proxies</b>, pega el texto directo, o edita <span class="mono">proxies.txt</span>.</div>
+      <div class="step"><b><span class="n">2</span>Recarga</b>Pulsa el botón
+        <b>Recargar listas</b> de la barra superior.</div>
+      <div class="step"><b><span class="n">3</span>Listo</b>Aparecerán aquí y podrás
+        validarlos con <b>Check ahora</b>.</div>
+    </div>
+    <button class="primary" onclick="api('/reload','Listas recargadas')">Recargar listas</button>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpis">
+    <div class="kpi" style="--accent:var(--green)">
+      <div class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2bd97c"
+        stroke-width="2.4" stroke-linecap="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+      <div class="num c-green" id="cAlive">-</div>
+      <div class="lbl">Vivos / Total</div>
+      <div class="healthbar"><i id="hbar" style="width:0%"></i></div>
+    </div>
+    <div class="kpi" style="--accent:var(--blue)">
+      <div class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#54a3ff"
+        stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 14h6v7H4zM4 3h6v7H4zM14 10h6v11h-6zM14 3h6v4h-6z"/></svg></div>
+      <div class="num c-blue" id="cReq">-</div>
+      <div class="lbl">Peticiones</div>
+      <div class="sub" id="cReqSub">a través del gateway</div>
+    </div>
+    <div class="kpi" style="--accent:var(--red)">
+      <div class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ff5d6c"
+        stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.01"/></svg></div>
+      <div class="num c-red" id="cErr">-</div>
+      <div class="lbl">Errores</div>
+      <div class="sub" id="cErrSub">tasa —</div>
+    </div>
+    <div class="kpi" style="--accent:var(--amber)">
+      <div class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ffb02e"
+        stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 19V5M5 12l7-7 7 7"/></svg></div>
+      <div class="num c-amber" id="cUp">-</div>
+      <div class="lbl">Subida</div>
+      <div class="sub">bytes enviados</div>
+    </div>
+    <div class="kpi" style="--accent:var(--cyan)">
+      <div class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#39d0d8"
+        stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 5v14M19 12l-7 7-7-7"/></svg></div>
+      <div class="num c-cyan" id="cDown">-</div>
+      <div class="lbl">Bajada</div>
+      <div class="sub">bytes recibidos</div>
+    </div>
+    <div class="kpi" style="--accent:var(--violet)">
+      <div class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a371f7"
+        stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+      <div class="num c-violet" id="cSess">-</div>
+      <div class="lbl">Sesiones sticky</div>
+      <div class="sub">con proxy fijo</div>
+    </div>
+  </div>
+
+  <!-- toolbar -->
+  <div class="toolbar">
+    <div class="group">
+      <label class="fld">Estrategia
+        <select id="strategy">
+          <option value="round-robin">round-robin</option>
+          <option value="random">random</option>
+          <option value="sticky">sticky</option>
+        </select>
+      </label>
+      <button class="primary" onclick="setStrategy()">Aplicar</button>
+    </div>
+    <div class="sep"></div>
+    <div class="group">
+      <button onclick="api('/reload','Listas recargadas')">↻ Recargar listas</button>
+      <button class="ghost-green" onclick="api('/check','Health-check lanzado')">⚕ Check ahora</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="group">
+      <label class="fld">Sesión
+        <input type="text" id="sess" placeholder="MI_SESION" size="13">
+      </label>
+      <button class="primary" onclick="genLink()">Generar enlace</button>
+    </div>
+  </div>
+
+  <div class="linkbox" id="linkbox">
+    <div class="title">Endpoint sticky — úsalo en OB M2 / tus tools</div>
+    <div class="url" id="linktext"></div>
+    <div class="api" id="linkapi"></div>
+    <div class="row">
+      <button onclick="copyLink()">Copiar enlace</button>
+      <button onclick="document.getElementById('linkbox').style.display='none'">Cerrar</button>
+    </div>
+  </div>
+
+  <!-- cargar proxies -->
+  <section>
+    <div class="sec-head"><h2>Cargar proxies</h2><div class="line"></div></div>
+    <div class="importcard">
+      <div class="itabs">
+        <button class="itab active" data-t="file" onclick="impTab(this)">Examinar / arrastrar</button>
+        <button class="itab" data-t="text" onclick="impTab(this)">Pegar texto</button>
+        <button class="itab" data-t="path" onclick="impTab(this)">Pegar ruta</button>
+      </div>
+
+      <div id="itab-file">
+        <div class="drop" id="drop">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#54a3ff" stroke-width="1.7"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <p><b>Arrastra aquí tus archivos .txt</b> o haz clic para elegirlos con el diálogo nativo</p>
+          <button onclick="event.stopPropagation();document.getElementById('fileInput').click()">Examinar archivos…</button>
+          <input type="file" id="fileInput" accept=".txt,.lst,.csv,text/plain" multiple hidden>
+        </div>
+        <div class="filelist" id="fileList"></div>
+      </div>
+
+      <div id="itab-text" hidden>
+        <textarea id="rawText" spellcheck="false"
+          placeholder="1.2.3.4:8080&#10;usuario:clave@1.2.3.4:8080&#10;socks5://1.2.3.4:1080&#10;0:1.2.3.4:8080::   (formato OB)&#10;# las líneas con # se ignoran"></textarea>
+        <div class="hint" style="margin-top:6px">Se valida en vivo cada línea: formato, protocolo, puerto y duplicados. Si el archivo se llama socks5.txt / socks4.txt / http.txt, las líneas sin protocolo toman ese tipo.</div>
+      </div>
+
+      <div id="itab-path" hidden>
+        <div class="irow">
+          <input type="text" id="pathInput" placeholder="C:\mis listas\proxies.txt"
+            onkeydown="if(event.key==='Enter')validatePath()">
+          <button onclick="validatePath()">Validar ruta</button>
+        </div>
+        <div class="hint" style="margin-top:8px">El servidor leerá el archivo (máx 5 MB · .txt/.lst/.csv)
+          y validará cada línea antes de importar.</div>
+      </div>
+
+      <div id="valReport" class="valreport" hidden>
+        <div class="chips" id="valChips"></div>
+        <div class="errlist" id="valErrors"></div>
+      </div>
+
+      <div class="iactions">
+        <button class="primary" id="btnImport" disabled onclick="doImport()">Importar</button>
+        <span class="hint" id="impHint">Valida primero un archivo, texto o ruta</span>
+      </div>
+      <div id="impResult" hidden></div>
+    </div>
+  </section>
+
+  <!-- checker masivo -->
+  <section id="massSection">
+    <div class="sec-head">
+      <h2>Checker Masivo</h2><div class="line"></div>
+      <div class="dl">
+        <a href="/checker/export?proto=all&amp;format=full">↓ vivos (full)</a>
+        <a href="/checker/export?proto=http&amp;format=full">↓ http</a>
+        <a href="/checker/export?proto=socks5&amp;format=full">↓ socks5</a>
+        <a href="/checker/report">↓ report</a>
+      </div>
+    </div>
+    <div class="importcard">
+      <div class="itabs">
+        <button class="itab active" data-mt="file" onclick="massTab(this)">Arrastrar archivos</button>
+        <button class="itab" data-mt="path" onclick="massTab(this)">Ruta del servidor</button>
+        <button class="itab" data-mt="text" onclick="massTab(this)">Pegar listas</button>
+      </div>
+
+      <div id="mtab-file">
+        <div class="drop" id="massDrop">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#54a3ff" stroke-width="1.7"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <p><b>Arrastra tus listas .txt y carpetas</b> (multi-archivo, formato Espectro)</p>
+          <button onclick="event.stopPropagation();document.getElementById('massFileInput').click()">Examinar…</button>
+          <input type="file" id="massFileInput" accept=".txt,.lst,.csv,text/plain" multiple hidden>
+        </div>
+        <div class="filelist" id="massFileList"></div>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button type="button" id="btnMassClearFiles" onclick="massClearFiles()">Vaciar archivos</button>
+        </div>
+      </div>
+
+      <div id="mtab-path" hidden>
+        <div class="irow">
+          <input type="text" id="massPath" placeholder="C:\mis listas\socks5.txt o C:\carpeta\listas"
+            onkeydown="if(event.key==='Enter')startMass()">
+        </div>
+        <div class="hint" style="margin-top:8px">Archivo .txt/.lst/.csv o carpeta completa (se recorren las
+          listas dentro). Máx 20 MB.</div>
+      </div>
+
+      <div id="mtab-text" hidden>
+        <textarea id="massText" spellcheck="false"
+          placeholder="1.2.3.4:8080&#10;user:pass@1.2.3.4:1080&#10;socks5://1.2.3.4:1080&#10;2:1.2.3.4:8080&#10;# sin esquema -> cascada SOCKS5 > SOCKS4 > HTTP"></textarea>
+        <div class="hint" style="margin-top:6px">Las líneas sin esquema se prueban en cascada
+          SOCKS5 → SOCKS4 → HTTP; las líneas con esquema se respetan.</div>
+        <div class="mtools" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+          <button type="button" id="btnMassDelLine" onclick="massDelLine()">Borrar línea</button>
+          <button type="button" id="btnMassDelHttp" onclick="massDelProto('http')">Borrar HTTP</button>
+          <button type="button" id="btnMassDelSocks4" onclick="massDelProto('socks4')">Borrar SOCKS4</button>
+          <button type="button" id="btnMassDelSocks5" onclick="massDelProto('socks5')">Borrar SOCKS5</button>
+          <button type="button" id="btnMassClearText" onclick="massClearText()">Vaciar texto</button>
+          <span class="hint" id="massDelHint" style="align-self:center"></span>
+        </div>
+      </div>
+
+      <div class="irow" style="margin-top:10px">
+        <input type="text" id="massJudge" placeholder="Juez personalizado (URL, opcional — default automático)">
+        <input type="text" id="massCountry" placeholder="País filtro (brasil, japan…)" style="max-width:200px">
+      </div>
+      <div class="irow" style="margin-top:6px">
+        <input type="number" id="massRetries" placeholder="Reintentos (0-5)" min="0" max="5" value="0"
+          style="max-width:150px">
+        <input type="number" id="massTimeout" placeholder="Timeout ms (0 = dinámico)" min="0" value="0"
+          style="max-width:220px">
+        <input type="number" id="massThreads" placeholder="Hilos (0 = autopilot)" min="0" value="0"
+          style="max-width:220px">
+        <label class="hint" style="display:flex;gap:6px;align-items:center">
+          <input type="checkbox" id="massGeo"> GeoIP por país
+        </label>
+        <label class="hint" style="display:flex;gap:6px;align-items:center">
+          <input type="checkbox" id="massSkipLocal" checked> Ignorar locales
+        </label>
+      </div>
+
+      <div class="iactions">
+        <button class="primary" id="btnMassStart" onclick="startMass()">Iniciar checker</button>
+        <button id="btnMassCancel" onclick="cancelMass()" disabled>Cancelar</button>
+        <button id="btnMassClearAll" onclick="massClearAll()"
+          title="Limpia TODO lo del Checker Masivo (archivos, texto y vivos del checker). No toca la lista de Proxies">Limpiar entrada</button>
+        <span class="hint" id="massHint">Elige archivos, ruta o texto para empezar</span>
+      </div>
+
+      <div id="massProgress" hidden style="margin-top:10px">
+        <div class="healthbar"><i id="massBar" style="width:0%"></i></div>
+        <div class="hint" id="massStats" style="margin-top:6px">—</div>
+      </div>
+
+      <div class="tablewrap" id="massHitsWrap" hidden style="margin-top:10px">
+        <div class="tbl-tools">
+          <span class="fchip active">Vivos <b id="massN">0</b></span>
+          <span class="fchip" id="massCPM">0 cpm</span>
+          <span class="fchip" id="massETA">eta 0m</span>
+          <button class="fchip active" type="button" id="mfAll" onclick="massFilterHits('all')">todos</button>
+          <button class="fchip" type="button" id="mfHttp" onclick="massFilterHits('http')">http</button>
+          <button class="fchip" type="button" id="mfSocks4" onclick="massFilterHits('socks4')">s4</button>
+          <button class="fchip" type="button" id="mfSocks5" onclick="massFilterHits('socks5')">s5</button>
+          <span style="flex:1"></span>
+          <button class="fchip" type="button" id="btnMassRemoveSel" onclick="massRemoveSel()">borrar selección</button>
+          <button class="fchip" type="button" id="btnMassClearHits" onclick="massClearHits()">vaciar vivos</button>
+          <a class="fchip" id="expFull" href="/checker/export?proto=all&amp;format=full">↓ full</a>
+          <a class="fchip" id="expPlain" href="/checker/export?proto=all&amp;format=plain">↓ ip:puerto</a>
+        </div>
+        <table>
+          <thead><tr>
+            <th><input type="checkbox" id="massCkAll" title="Seleccionar todo"></th>
+            <th>Proxy</th><th>Protocolo</th><th>Ping</th><th>Anon</th><th>País</th><th></th>
+          </tr></thead>
+          <tbody id="massHitsBody"><tr class="emptyrow"><td colspan="7">sin datos todavía</td></tr></tbody>
+        </table>
+      </div>
+      <div id="massCountries" class="hint" style="margin-top:8px"></div>
+    </div>
+  </section>
+
+  <!-- proxies -->
+  <section>
+    <div class="sec-head">
+      <h2>Proxies</h2><div class="line"></div>
+      <div class="dl">
+        <a href="/proxy.txt">↓ proxy.txt</a>
+        <a href="/proxy.txt?format=ob">↓ formato OB</a>
+      </div>
+    </div>
+    <div class="tablewrap">
+      <div class="tbl-tools">
+        <button class="fchip active" data-f="all" onclick="setFilter(this)">Todos <b id="nAll">0</b></button>
+        <button class="fchip" data-f="alive" onclick="setFilter(this)">Vivos <b id="nAlive">0</b></button>
+        <button class="fchip" data-f="dead" onclick="setFilter(this)">Muertos <b id="nDead">0</b></button>
+        <input type="text" id="search" placeholder="Buscar host, puerto o esquema…" oninput="renderProxies()">
+        <button class="fchip" type="button" id="btnDelDead" onclick="removeScope('dead')"
+          title="Borra de TODA la lista los proxies muertos y reescribe los .txt en disco">borrar muertos</button>
+        <button class="fchip" type="button" id="btnDelAlive" onclick="removeScope('alive')"
+          title="Borra de TODA la lista los proxies vivos y reescribe los .txt en disco">borrar vivos</button>
+        <button class="fchip" type="button" id="btnDelAll" onclick="removeScope('all')"
+          title="Vacía TODA la lista SOLO en memoria: no toca los .txt en disco (al recargar o reiniciar se vuelven a cargar)">vaciar todo</button>
+        <span style="flex:1"></span>
+        <button class="fchip" id="pgPrev" onclick="pgPrev()">&#8592;</button>
+        <span class="fchip" id="pgInfo">0</span>
+        <button class="fchip" id="pgNext" onclick="pgNext()">&#8594;</button>
+      </div>
+      <table>
+        <thead><tr><th>#</th><th>Esquema</th><th>Host : Puerto</th><th>Estado</th><th>Ping</th><th>Fallos</th><th>Acciones</th></tr></thead>
+        <tbody id="ptbody"><tr class="emptyrow"><td colspan="7">cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- info de arranque: antes salia en la consola, ahora vive en el panel -->
+  <section>
+    <div class="sec-head"><h2>Info de arranque</h2><div class="line"></div></div>
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span class="t">ESPECTRO PROXY PRO — boot</span></div>
+      <div id="bootInfo">cargando…</div>
+    </div>
+  </section>
+
+  <!-- log -->
+  <section>
+    <div class="sec-head"><h2>Log</h2><div class="line"></div></div>
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span class="t">proxy-gateway — tiempo real</span></div>
+      <div id="logs">conectando…</div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span>Gateway: <code id="fGw">—</code></span>
+  <span>Panel: <code id="fPanel">—</code></span>
+  <span>Listas: <code id="fFiles">—</code></span>
+</footer>
+
+<div id="toast"></div>
+
+<script>
+let filter = 'all';
+let proxyData = [];
+let proxyOffset = 0;
+let proxyTotal = 0;
+const PROXY_PAGE = 200;
+let lastLogs = '';
+let lastBoot = '';
+let lastAlive = null;
+
+function fmtBytes(n){
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
+  if (n < 1073741824) return (n/1048576).toFixed(1) + ' MB';
+  return (n/1073741824).toFixed(2) + ' GB';
+}
+function esc(s){ return String(s).replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function gwToken(){
+  const m = document.querySelector('meta[name=gw-token]');
+  return (m && m.content && m.content !== '__GW_TOKEN__') ? m.content : '';
+}
+async function jget(path){
+  // con --api-token el servidor exige X-API-Token tambien en lecturas
+  // (/proxies, /checker/hits, ...)
+  const h = {}; const t = gwToken(); if (t) h['X-API-Token'] = t;
+  const r = await fetch(path, {headers: h});
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+function gwHeaders(){
+  const h = {'X-GW-Panel':'1'};
+  const t = gwToken(); if (t) h['X-API-Token'] = t;
+  return h;
+}
+async function jpost(path, data){
+  const r = await fetch(path, {method:'POST',
+    headers:Object.assign({'Content-Type':'application/json'}, gwHeaders()),
+    body:JSON.stringify(data)});
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+function toast(msg, isErr){
+  const wrap = document.getElementById('toast');
+  const t = document.createElement('div');
+  t.className = 'toast-msg' + (isErr ? ' err' : '');
+  t.textContent = msg;
+  wrap.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('show'));
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 2400);
+}
+async function api(path, msg){
+  try{
+    const r = await fetch(path, {method:'POST', headers: gwHeaders()});
+    if (!r.ok) throw new Error(r.status);
+    await r.json();
+    toast(msg);
+  }catch(e){
+    toast(msg + ' (fallo)', true);
+  }
+  refresh();
+  refreshProxies();
+}
+function setStrategy(){
+  const s = document.getElementById('strategy').value;
+  api('/set-strategy?strategy=' + s, 'Estrategia: ' + s);
+}
+function setFilter(btn){
+  document.querySelectorAll('.fchip[data-f]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  filter = btn.dataset.f;
+  renderProxies();
+}
+function pgPrev(){
+  if (proxyOffset > 0){ proxyOffset = Math.max(0, proxyOffset - PROXY_PAGE); refreshProxies(); }
+}
+function pgNext(){
+  if (proxyOffset + PROXY_PAGE < proxyTotal){ proxyOffset += PROXY_PAGE; refreshProxies(); }
+}
+function renderProxies(){
+  const q = (document.getElementById('search').value || '').toLowerCase().trim();
+  // conserva el indice original (i) para que las acciones de fila apunten
+  // al proxy correcto aunque el filtro/sorteo descarte filas.
+  const rows = proxyData.map((p, i) => ({p, i})).filter(({p}) => {
+    if (filter === 'alive' && !p.alive) return false;
+    if (filter === 'dead' && p.alive) return false;
+    if (q && !(p.host + ':' + p.port + ' ' + p.scheme).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  document.getElementById('nAll').textContent = proxyData.length;
+  document.getElementById('nAlive').textContent = proxyData.filter(p => p.alive).length;
+  document.getElementById('nDead').textContent = proxyData.filter(p => !p.alive).length;
+  document.getElementById('pgInfo').textContent = proxyData.length
+    ? (proxyOffset+1) + '-' + (proxyOffset+proxyData.length) + ' de ' + proxyTotal
+    : '0';
+
+  const tb = document.getElementById('ptbody');
+  if (!proxyData.length){
+    tb.innerHTML = '<tr class="emptyrow"><td colspan="7">sin proxies — sigue los pasos de arriba</td></tr>';
+    return;
+  }
+  if (!rows.length){
+    tb.innerHTML = '<tr class="emptyrow"><td colspan="7">sin resultados para este filtro</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map(({p, i}) =>
+    `<tr>
+      <td class="idx">${proxyOffset + i + 1}</td>
+      <td><span class="scheme ${esc(p.scheme)}">${esc(p.scheme)}</span></td>
+      <td class="mono">${esc(p.host)}:${p.port}</td>
+      <td>${!p.checked?'<span class="badge unchecked">SIN VERIFICAR</span>':`<span class="badge ${p.alive?'ok':'dead'}">${p.alive?'VIVO':'MUERTO'}</span>`}</td>
+      <td class="ping">${p.checked?(p.ping_ms>0?p.ping_ms+' ms':'—'):''}</td>
+      <td class="fails ${p.fails>0?'hot':''}">${p.fails}</td>
+      <td class="acts">
+        <button class="rowbtn" type="button" title="Editar proxy" onclick="editProxy(${i})">&#9998;</button>
+        <button class="rowbtn del" type="button" title="Borrar de la lista (se guarda en disco)" onclick="delProxy(${i})">&#215;</button>
+      </td>
+    </tr>`).join('');
+}
+
+// --- gestor de la lista: keys/dead/alive persisten en disco; "all" solo memoria
+async function delProxy(i){
+  const p = proxyData[i];
+  if (!p) return;
+  if (!confirm('¿Borrar ' + p.host + ':' + p.port + ' de la lista?\n' +
+      'Se reescribe el .txt en disco (no se puede deshacer).')) return;
+  try{
+    const j = await jpost('/proxy-remove', {keys:[p.key]});
+    toast(j.removed
+      ? 'borrado ' + p.host + ':' + p.port + ' · lista en disco actualizada'
+      : 'no se encontró ese proxy', !j.removed);
+  }catch(e){
+    toast('no se pudo borrar: ' + e.message, true);
+  }
+  proxyOffset = 0;
+  refresh();
+  refreshProxies();
+}
+function editProxy(i){
+  const p = proxyData[i];
+  if (!p) return;
+  const line = prompt('Editar proxy (host:puerto o socks5://user:pass@host:puerto)', p.tag);
+  if (line === null) return;
+  const clean = line.trim();
+  if (!clean) return;
+  jpost('/proxy-edit', {key:p.key, line:clean})
+    .then(j => toast('proxy editado → ' + j.key))
+    .catch(e => toast('no se pudo editar: ' + e.message, true))
+    .finally(() => { proxyOffset = 0; refresh(); refreshProxies(); });
+}
+async function removeScope(scope){
+  const st = window.lastStats || {};
+  const n = scope === 'all' ? (st.total || proxyTotal)
+    : scope === 'alive' ? (st.alive || 0)
+    : (st.dead || 0);
+  const label = scope === 'all' ? 'TODA la lista (' + n + ' proxies)'
+    : scope === 'alive' ? 'los ' + n + ' vivos de TODA la lista'
+    : 'los ' + n + ' muertos de TODA la lista';
+  if (!n){
+    toast(scope === 'dead' ? 'no hay muertos que borrar' : 'nada que borrar');
+    return;
+  }
+  const msg = scope === 'all'
+    ? '¿Vaciar ' + label + '?\n' +
+      'Solo se vacía en memoria: los .txt en disco NO se tocan\n' +
+      '(al recargar o reiniciar se vuelven a cargar).'
+    : '¿Borrar ' + label + '?\n' +
+      'Se reescriben los .txt en disco (no se puede deshacer).';
+  if (!confirm(msg)) return;
+  try{
+    const j = await jpost('/proxy-remove', {scope});
+    toast(scope === 'all'
+      ? 'lista vaciada (solo memoria · los .txt no se tocan)'
+      : 'borrados ' + j.removed + ' · lista en disco actualizada' +
+        (j.files && j.files.length ? ' (' + j.files.length + ' ficheros)' : ''));
+  }catch(e){
+    toast('no se pudo borrar: ' + e.message, true);
+  }
+  proxyOffset = 0;
+  refresh();
+  refreshProxies();
+}
+let lastGW = '';
+function stickyLink(session, gwBase){
+  const host = (gwBase || location.origin).replace(/^https?:\/\//, '');
+  return 'http://' + session + ':clave@' + host;
+}
+function genLink(){
+  const s = document.getElementById('sess').value.trim() || 'MI_SESION';
+  document.getElementById('linktext').textContent = stickyLink(s, lastGW);
+  document.getElementById('linkapi').textContent =
+    'JSON: ' + location.origin + '/get?session=' + encodeURIComponent(s);
+  document.getElementById('linkbox').style.display = 'block';
+  jget('/get?session=' + encodeURIComponent(s)).then(j => {
+    if (j.proxy){
+      document.getElementById('linktext').textContent = j.proxy;
+    }
+    if (j.sticky_on){
+      document.getElementById('linkapi').textContent =
+        'JSON: ' + location.origin + '/get?session=' + encodeURIComponent(s) +
+        '  →  fijo en ' + j.sticky_on;
+    }
+  }).catch(() => {});
+}
+function copyLink(){
+  const txt = document.getElementById('linktext').textContent;
+  navigator.clipboard.writeText(txt).then(
+    () => toast('Enlace copiado'),
+    () => toast('No se pudo copiar', true));
+}
+function setUpdated(){
+  document.getElementById('updated').textContent = 'act. ' +
+    new Date().toLocaleTimeString('es', {hour12:false});
+}
+async function refreshProxies(){
+  try{
+    const px = await jget('/proxies?limit=' + PROXY_PAGE + '&offset=' + proxyOffset);
+    const list = px.proxies || [];
+    // Si el offset quedo fuera de rango (la lista encogio tras /reload),
+    // volvemos a la pagina 1 en vez de mostrar "sin proxies" por error.
+    if (!list.length && (px.total || 0) > 0 && (px.offset || 0) > 0){
+      proxyOffset = 0;
+      return refreshProxies();
+    }
+    proxyData = list;
+    proxyTotal = px.total || list.length;
+    renderProxies();
+  }catch(e){
+    // 401 = el servidor exige token y no coincide: avisar en la tabla en
+    // vez de dejar "cargando…" eterno (el catch de abajo se traga el error)
+    if (String(e.message) === '401'){
+      document.getElementById('ptbody').innerHTML =
+        '<tr class="emptyrow"><td colspan="7">401 — el servidor exige --api-token y este panel no lo trae. ' +
+        'Abre el panel con ?token=TU_TOKEN o reinicia sin --api-token</td></tr>';
+    }
+  }
+}
+
+async function refresh(){
+  try{
+    const [st, lg] = await Promise.all([
+      jget('/stats'), jget('/logs')]);
+
+    const pill = document.getElementById('statusPill');
+    pill.classList.toggle('ok', st.alive > 0);
+    window.lastStats = st; // para los avisos de borrado (borrar muertos/vaciar todo)
+    document.getElementById('statusTxt').textContent =
+      st.total === 0 ? 'sin proxies' :
+      st.alive > 0 ? st.alive + ' vivos' + (st.unchecked ? ' (' + st.unchecked + ' sin verificar)' : '') : 'todos caídos';
+    document.getElementById('stratPill').textContent = 'estrategia: ' + st.strategy;
+    document.getElementById('strategy').value = st.strategy;
+
+    document.getElementById('cAlive').textContent = st.alive + '/' + st.total;
+    document.getElementById('hbar').style.width =
+      (st.total ? Math.round(st.alive / st.total * 100) : 0) + '%';
+    document.getElementById('cReq').textContent = st.requests;
+    document.getElementById('cErr').textContent = st.errors;
+    document.getElementById('cErrSub').textContent = 'tasa ' +
+      (st.requests ? (st.errors / st.requests * 100).toFixed(1) : '0') + '%';
+    document.getElementById('cUp').textContent = fmtBytes(st.bytes_up);
+    document.getElementById('cDown').textContent = fmtBytes(st.bytes_down);
+    document.getElementById('cSess').textContent = st.sessions;
+
+    document.getElementById('empty').style.display = st.total === 0 ? 'block' : 'none';
+    document.getElementById('fFiles').textContent = (st.files || []).join(', ') || '—';
+    document.getElementById('fGw').textContent = st.gateway || '—';
+    if (st.gateway) lastGW = st.gateway;
+    document.getElementById('fPanel').textContent = location.origin + '/panel';
+
+    // Info de arranque (lo que antes imprimia la consola al iniciar)
+    const boot = [
+      'ESPECTRO PROXY PRO listo',
+      'Proxies cargados: ' + st.total + ' (vivos: ' + st.alive + ')',
+      'Endpoint (rotacion):  ' + (st.gateway || '—'),
+      'Panel (ventana):      ' + location.origin + '/panel',
+      'Enlace magico:        ' + location.origin + '/get?session=MI_SESION',
+      'Lista txt viva:       ' + location.origin + '/proxy.txt' + (gwToken() ? '?token=' + encodeURIComponent(gwToken()) : ''),
+      'Estrategia: ' + (st.strategy || '—') + ' | health-check cada ' + (st.check_itv || 0) + 's',
+      'Estado persistente:  ' + (st.state_file || 'desactivado'),
+      'Version: ' + (st.version || 'dev') + ' | Licencia: ' + (st.lic || 'Demo')
+    ].join('\n');
+    if (boot !== lastBoot){
+      document.getElementById('bootInfo').innerHTML = boot.split('\n')
+        .map(l => '<span class="logline">' + esc(l) + '</span>').join('\n');
+      lastBoot = boot;
+    }
+
+    // Si cambio el numero de vivos (health-check o /check manual), la tabla
+    // de badges quedaria desincronizada hasta el siguiente refresco de 15s.
+    if (lastAlive !== null && st.alive !== lastAlive) refreshProxies();
+    lastAlive = st.alive;
+
+    const lines = (lg.lines || []);
+    const txt = lines.join('\n') || '(vacío)';
+    if (txt !== lastLogs){
+      const logs = document.getElementById('logs');
+      const nearBottom = logs.scrollHeight - logs.scrollTop - logs.clientHeight < 60;
+      logs.innerHTML = lines.map(l => '<span class="logline">' + esc(l) + '</span>').join('\n')
+        || '(vacío)';
+      if (nearBottom) logs.scrollTop = logs.scrollHeight;
+      lastLogs = txt;
+    }
+    setUpdated();
+  }catch(e){
+    const pill = document.getElementById('statusPill');
+    pill.classList.remove('ok');
+    document.getElementById('statusTxt').textContent =
+      String(e.message) === '401' ? 'token invalido (401)' : 'sin conexión';
+  }
+}
+/* ================= cargar proxies: validación + importación ================= */
+const SCHEMES = {http:'http', https:'http', socks:'socks5', socks4:'socks4',
+                 socks4a:'socks4a', socks5:'socks5'};
+const TYPEMAP = Object.assign({}, SCHEMES, {'0':'http','1':'socks4','2':'socks5','3':'http'});
+
+function bareScheme(d){
+  return (d==='http'||d==='socks4'||d==='socks4a'||d==='socks5') ? d : 'http';
+}
+function schemeFromName(name){
+  const n = String(name||'').toLowerCase();
+  if (n.indexOf('socks5') >= 0) return 'socks5';
+  if (n.indexOf('socks4a') >= 0) return 'socks4a';
+  if (n.indexOf('socks4') >= 0) return 'socks4';
+  if (n.indexOf('https') >= 0 || n.indexOf('http') >= 0) return 'http';
+  return '';
+}
+
+function parsePort(t){
+  if (!/^\d+$/.test(t)) return null;
+  const n = +t;
+  return (n >= 1 && n <= 65535) ? n : null;
+}
+function splitHP(s){
+  if (s.startsWith('[')){
+    const e = s.indexOf(']');
+    if (e < 0 || s[e+1] !== ':') return null;
+    const host = s.slice(1, e), port = parsePort(s.slice(e+2));
+    return (host && port) ? {host, port} : null;
+  }
+  const i = s.lastIndexOf(':');
+  if (i <= 0) return null;
+  const host = s.slice(0, i), port = parsePort(s.slice(i+1));
+  return (host && port) ? {host, port} : null;
+}
+function parseProxyLine(raw, def){
+  const s = raw.trim();
+  const bad = reason => ({ok:false, reason});
+  if (s.includes('://')){
+    let u;
+    try { u = new URL(s); } catch(e){ return bad('URL mal formada'); }
+    const scheme = SCHEMES[u.protocol.slice(0,-1).toLowerCase()];
+    if (!scheme) return bad('esquema no soportado: ' + u.protocol.slice(0,-1) + ' (usa http, socks4, socks5)');
+    if (!u.hostname) return bad('falta el host');
+    let port = u.port ? parseInt(u.port, 10) : (scheme.startsWith('socks') ? 1080 : 8080);
+    if (u.port && (isNaN(port) || port < 1 || port > 65535)) return bad('puerto fuera de rango (1-65535)');
+    const user = u.username ? decodeURIComponent(u.username) : '';
+    return {ok:true, scheme, host:u.hostname, port, user};
+  }
+  if (s.includes('@')){
+    const i = s.lastIndexOf('@');
+    const left = s.slice(0, i), right = s.slice(i+1);
+    const hp = splitHP(right);
+    if (!hp) return bad('se espera host:puerto después de "@"');
+    const ci = left.indexOf(':');
+    return {ok:true, scheme:bareScheme(def), host:hp.host, port:hp.port,
+            user: ci >= 0 ? left.slice(0, ci) : left};
+  }
+  if (s.startsWith('[')){
+    const hp = splitHP(s);
+    if (!hp) return bad('IPv6 inválido (usa [ipv6]:puerto)');
+    return {ok:true, scheme:bareScheme(def), host:hp.host, port:hp.port, user:''};
+  }
+  const parts = s.split(':');
+  if (parts.length >= 3 && TYPEMAP[parts[0]]){
+    const scheme = TYPEMAP[parts[0]];
+    if (!parts[1]) return bad('falta el host');
+    const port = parsePort(parts[2] || '');
+    if (port === null) return bad('puerto inválido o fuera de rango (se espera tipo:host:puerto:user:pass)');
+    return {ok:true, scheme, host:parts[1], port, user:parts[3] || ''};
+  }
+  if (parts.length === 2){
+    const i = s.lastIndexOf(':');
+    const portStr = i > 0 ? s.slice(i+1) : '';
+    const hp = splitHP(s);
+    if (!hp){
+      if (/^\d+$/.test(portStr)) return bad('puerto fuera de rango (1-65535)');
+      return bad('puerto faltante o inválido (se espera host:puerto)');
+    }
+    return {ok:true, scheme:bareScheme(def), host:hp.host, port:hp.port, user:''};
+  }
+  if (parts.length === 3){
+    if (!parts[0]) return bad('falta el host');
+    const port = parsePort(parts[1] || '');
+    if (port === null) return bad('puerto inválido (se espera host:puerto:usuario)');
+    return {ok:true, scheme:bareScheme(def), host:parts[0], port, user:parts[2]};
+  }
+  if (parts.length === 4){
+    if (!parts[0]) return bad('falta el host');
+    const port = parsePort(parts[1] || '');
+    if (port === null) return bad('puerto inválido (se espera host:puerto:usuario:clave)');
+    return {ok:true, scheme:bareScheme(def), host:parts[0], port, user:parts[2]};
+  }
+  return bad('formato no reconocido (máx. 4 campos: host:puerto:usuario:clave)');
+}
+function validateBatch(text, def){
+  const res = {valid:[], invalid:[], duplicates:0, ignored:0};
+  const seen = new Set(proxyData.map(p => p.tag));
+  text.replace(/\r\n/g,'\n').split('\n').forEach((raw, i) => {
+    const s = raw.trim();
+    if (!s || s.startsWith('#')){ res.ignored++; return; }
+    const v = parseProxyLine(s, def);
+    if (!v.ok){ res.invalid.push({line:i+1, text:s, reason:v.reason}); return; }
+    const key = v.scheme + '://' + (v.user ? v.user + '@@' : '') + v.host + ':' + v.port;
+    if (seen.has(key)){ res.duplicates++; return; }
+    seen.add(key);
+    res.valid.push({line:i+1, text:s, scheme:v.scheme, key:key});
+  });
+  return res;
+}
+function mergeReports(files){
+  const seen = new Set();
+  const out = {valid:[], invalid:[], duplicates:0, ignored:0};
+  for (const f of files){
+    const r = f.report || {valid:[], invalid:[], duplicates:0, ignored:0};
+    for (const v of r.valid){
+      if (seen.has(v.key)) out.duplicates++;
+      else { seen.add(v.key); out.valid.push(v); }
+    }
+    for (const x of r.invalid)
+      out.invalid.push({line:x.line, text:x.text, reason:x.reason, file:f.name});
+    out.duplicates += r.duplicates;
+    out.ignored += r.ignored;
+  }
+  return out;
+}
+function protoChips(list){
+  const m = {};
+  list.forEach(v => m[v.scheme] = (m[v.scheme]||0)+1);
+  return Object.keys(m).sort().map(k => '<span class="vchip proto">' +
+    k.toUpperCase() + ' ' + m[k] + '</span>').join('');
+}
+function renderReport(rep, hint){
+  const nValid = Array.isArray(rep.valid) ? rep.valid.length : (rep.valid||0);
+  const invalid = rep.invalid || [];
+  const invTotal = rep.invalid_total != null ? rep.invalid_total : invalid.length;
+  const box = document.getElementById('valReport');
+  const chips = document.getElementById('valChips');
+  const errs = document.getElementById('valErrors');
+  if (nValid === 0 && invTotal === 0 && !rep.duplicates && !rep.ignored){
+    box.hidden = true;
+  } else {
+    box.hidden = false;
+    chips.innerHTML =
+      '<span class="vchip ok">✓ ' + nValid + ' válidos</span>' +
+      '<span class="vchip bad">✗ ' + invTotal + ' inválidos</span>' +
+      '<span class="vchip dup">⧉ ' + (rep.duplicates||0) + ' duplicados</span>' +
+      '<span class="vchip ign">○ ' + (rep.ignored||0) + ' ignorados</span>' +
+      (Array.isArray(rep.valid) ? protoChips(rep.valid) :
+        Object.keys(rep.protocols||{}).sort().map(k =>
+          '<span class="vchip proto">' + esc(k.toUpperCase()) + ' ' + rep.protocols[k] + '</span>').join(''));
+    errs.innerHTML = invalid.slice(0, 50).map(x =>
+      '<div class="errline"><span class="ln">' +
+      (x.file ? esc(x.file) + ' L' : 'L') + x.line + '</span>' +
+      '<span>' + esc(x.text) + '</span><span class="why">→ ' + esc(x.reason) + '</span></div>'
+    ).join('') + (invTotal > 50 ?
+      '<div class="errline"><span class="ln"></span><span>…y ' + (invTotal-50) + ' más</span></div>' : '');
+  }
+  const btn = document.getElementById('btnImport');
+  btn.disabled = nValid === 0;
+  btn.textContent = nValid > 0 ? 'Importar ' + nValid + ' proxies' : 'Importar';
+  document.getElementById('impHint').textContent =
+    hint || (nValid > 0 ? 'Se guardarán en la lista principal y pasarán el health-check'
+                        : 'sin líneas válidas todavía');
+}
+function impTab(btn){
+  document.querySelectorAll('.itab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const mode = btn.dataset.t;
+  ['file','text','path'].forEach(t =>
+    document.getElementById('itab-' + t).hidden = (t !== mode));
+  document.getElementById('impResult').hidden = true;
+  if (mode === 'file' && filesSel.length) renderFileState();
+  else if (mode === 'text' && document.getElementById('rawText').value.trim()) onText();
+  else if (mode === 'path' && document.getElementById('pathInput').value.trim()) validatePath();
+  else { document.getElementById('valReport').hidden = true;
+         document.getElementById('btnImport').disabled = true;
+         document.getElementById('btnImport').textContent = 'Importar';
+         document.getElementById('impHint').textContent = 'Valida primero un archivo, texto o ruta'; }
+}
+
+/* ---- pestaña archivo: nativo + drag & drop ---- */
+let filesSel = [];
+function renderFileState(){
+  const wrap = document.getElementById('fileList');
+  wrap.innerHTML = filesSel.map((f, i) => {
+    const r = f.report;
+    return '<div class="filerow"><span class="fname">' + esc(f.name) + '</span>' +
+      '<span class="vchip ok">✓ ' + r.valid.length + '</span>' +
+      (r.invalid.length ? '<span class="vchip bad">✗ ' + r.invalid.length + '</span>' : '') +
+      (r.duplicates ? '<span class="vchip dup">⧉ ' + r.duplicates + '</span>' : '') +
+      '<span class="hint">' + f.lines + ' líneas</span>' +
+      '<button class="x" title="Quitar" onclick="removeFile(' + i + ')">×</button></div>';
+  }).join('');
+  if (filesSel.length) renderReport(mergeReports(filesSel),
+    filesSel.length > 1 ? filesSel.length + ' archivos combinados' : null);
+  else {
+    document.getElementById('valReport').hidden = true;
+    document.getElementById('btnImport').disabled = true;
+    document.getElementById('btnImport').textContent = 'Importar';
+  }
+}
+function removeFile(i){
+  filesSel.splice(i, 1);
+  renderFileState();
+}
+async function addFiles(fl){
+  for (const f of fl){
+    if (f.size > 5*1024*1024){
+      toast('"' + f.name + '" supera 5 MB', true);
+      continue;
+    }
+    if (!/\.(txt|lst|csv)$/i.test(f.name)){
+      toast('"' + f.name + '": extensión no permitida (.txt/.lst/.csv)', true);
+      continue;
+    }
+    try{
+      const text = await f.text();
+      filesSel.push({name:f.name, text, lines:text.split(/\r?\n/).length,
+                     report: validateBatch(text, schemeFromName(f.name))});
+    }catch(e){ toast('No se pudo leer "' + f.name + '"', true); }
+  }
+  renderFileState();
+}
+const drop = document.getElementById('drop');
+drop.addEventListener('click', () => document.getElementById('fileInput').click());
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => {
+  e.preventDefault();
+  drop.classList.remove('over');
+  if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+});
+document.getElementById('fileInput').addEventListener('change', e => {
+  addFiles(e.target.files);
+  e.target.value = '';
+});
+
+/* ---- pestaña texto: validación en vivo ---- */
+let textTimer = null;
+function onText(){
+  const v = document.getElementById('rawText').value;
+  if (!v.trim()){
+    document.getElementById('valReport').hidden = true;
+    document.getElementById('btnImport').disabled = true;
+    document.getElementById('btnImport').textContent = 'Importar';
+    document.getElementById('impHint').textContent = 'Pega tu lista de proxies aquí arriba';
+    return;
+  }
+  renderReport(validateBatch(v));
+}
+document.getElementById('rawText').addEventListener('input', () => {
+  clearTimeout(textTimer);
+  textTimer = setTimeout(onText, 250);
+});
+
+/* ---- pestaña ruta: validación server-side ---- */
+async function validatePath(){
+  const p = document.getElementById('pathInput').value.trim();
+  if (!p) return;
+  document.getElementById('impHint').textContent = 'Validando ruta en el servidor…';
+  try{
+    const r = await jpost('/validate', {path:p});
+    if (r.ok === false && r.error && !r.valid){
+      document.getElementById('valReport').hidden = false;
+      document.getElementById('valChips').innerHTML =
+        '<span class="vchip bad">✗ ' + esc(r.error) + '</span>';
+      document.getElementById('valErrors').innerHTML = '';
+      document.getElementById('btnImport').disabled = true;
+      document.getElementById('btnImport').textContent = 'Importar';
+      document.getElementById('impHint').textContent = 'ruta no válida';
+      return;
+    }
+    renderReport(r, 'Archivo validado por el servidor: ' + p);
+  }catch(e){
+    toast('Error validando la ruta', true);
+  }
+}
+
+/* ---- importar ---- */
+function importErrList(errs){
+  if (!errs.length) return '';
+  return '<div class="errlist">' + errs.map(x =>
+    '<div class="errline"><span class="ln">' +
+    (x.file ? esc(x.file).slice(0, 18) + ' L' : 'L') + x.line + '</span><span>' +
+    esc(x.text) + '</span><span class="why">→ ' + esc(x.reason) +
+    '</span></div>').join('') + '</div>';
+}
+async function doImport(){
+  const active = document.querySelector('.itab.active').dataset.t;
+  const reqs = [];
+  if (active === 'file'){
+    for (const f of filesSel)
+      reqs.push({payload:{text: f.text, name: f.name}, label: f.name});
+  } else if (active === 'text'){
+    const v = document.getElementById('rawText').value;
+    if (v.trim()) reqs.push({payload:{text: v}, label: 'texto pegado'});
+  } else {
+    const p = document.getElementById('pathInput').value.trim();
+    if (p) reqs.push({payload:{path: p}, label: p});
+  }
+  if (!reqs.length) return;
+  const btn = document.getElementById('btnImport');
+  btn.disabled = true;
+  btn.textContent = 'Importando…';
+  try{
+    const results = [];
+    for (const q of reqs)
+      results.push({r: await jpost('/import', q.payload), label: q.label});
+    let valid = 0, invalidTotal = 0, dups = 0, total = 0;
+    let savedTo = '', firstErr = '';
+    const errs = [];
+    for (const x of results){
+      valid += x.r.valid || 0;
+      invalidTotal += x.r.invalid_total || 0;
+      dups += x.r.duplicates || 0;
+      if (x.r.total) total = x.r.total;
+      if (x.r.saved_to) savedTo = x.r.saved_to;
+      if (x.r.error && !firstErr) firstErr = x.r.error;
+      for (const iv of (x.r.invalid || [])){
+        if (errs.length < 20)
+          errs.push({line: iv.line, text: iv.text, reason: iv.reason,
+                     file: results.length > 1 ? x.label : ''});
+      }
+    }
+    const box = document.getElementById('impResult');
+    box.hidden = false;
+    if (valid > 0){
+      box.className = 'impresult';
+      box.innerHTML = '✓ <b>' + valid + '</b> proxies importados' +
+        (savedTo ? ' y guardados en <code>' + esc(savedTo) + '</code>' : '') + '<br>' +
+        'inválidos omitidos: ' + invalidTotal +
+        ' · duplicados: ' + dups +
+        ' · total en el gateway: <b>' + total + '</b>' +
+        (firstErr ? '<br>⚠ ' + esc(firstErr) : '') +
+        importErrList(errs);
+      toast('Importados ' + valid + ' proxies ✓');
+      filesSel = [];
+      renderFileState();
+      document.getElementById('rawText').value = '';
+      document.getElementById('valReport').hidden = true;
+      refresh();
+      refreshProxies();
+    } else {
+      box.className = 'impresult bad';
+      box.innerHTML = '✗ ' + esc(firstErr || 'nada que importar') +
+        importErrList(errs);
+      toast(firstErr || 'Nada que importar', true);
+    }
+  }catch(e){
+    toast('Error de red importando', true);
+  }
+  renderReportReenable();
+}
+function renderReportReenable(){
+  const active = document.querySelector('.itab.active').dataset.t;
+  const btn = document.getElementById('btnImport');
+  if (active === 'file') renderFileState();
+  else if (active === 'text') onText();
+  else {
+    const p = document.getElementById('pathInput').value.trim();
+    btn.disabled = !p;
+    btn.textContent = 'Importar';
+  }
+}
+
+/* ================= checker masivo ================= */
+function massTab(btn){
+  document.querySelectorAll('#massSection .itab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const mode = btn.dataset.mt;
+  ['file','path','text'].forEach(t =>
+    document.getElementById('mtab-' + t).hidden = (t !== mode));
+}
+
+/* ---- archivos: drag & drop + selector nativo (multi) ---- */
+let massFiles = [];
+function renderMassFiles(){
+  document.getElementById('massFileList').innerHTML = massFiles.map((f, i) =>
+    '<div class="filerow"><span class="fname">' + esc(f.name) + '</span>' +
+    '<span class="hint">' + f.lines + ' líneas</span>' +
+    '<button class="x" title="Quitar" onclick="massFiles.splice(' + i + ',1);renderMassFiles()">×</button></div>'
+  ).join('');
+  document.getElementById('massHint').textContent = massFiles.length
+    ? massFiles.length + ' archivo(s) listo(s) — pulsa Iniciar'
+    : 'Elige archivos, ruta o texto para empezar';
+}
+async function addMassFiles(fl){
+  for (const f of fl){
+    if (f.size > 20*1024*1024){ toast('"' + f.name + '" supera 20 MB', true); continue; }
+    if (!/\.(txt|lst|csv)$/i.test(f.name)){
+      toast('"' + f.name + '": extensión no permitida (.txt/.lst/.csv)', true); continue;
+    }
+    try{
+      const text = await f.text();
+      massFiles.push({name:f.name, text, lines:text.split(/\r?\n/).length});
+    }catch(e){ toast('No se pudo leer "' + f.name + '"', true); }
+  }
+  renderMassFiles();
+}
+const massDrop = document.getElementById('massDrop');
+massDrop.addEventListener('click', () => document.getElementById('massFileInput').click());
+massDrop.addEventListener('dragover', e => { e.preventDefault(); massDrop.classList.add('over'); });
+massDrop.addEventListener('dragleave', () => massDrop.classList.remove('over'));
+massDrop.addEventListener('drop', e => {
+  e.preventDefault();
+  massDrop.classList.remove('over');
+  // dataTransfer.items permite tambien carpetas (webkitGetAsEntry)
+  const items = e.dataTransfer.items;
+  if (items && items.length && items[0].webkitGetAsEntry){
+    const entries = [];
+    for (const it of items){ const en = it.webkitGetAsEntry(); if (en) entries.push(en); }
+    collectMassEntries(entries, []).then(files => { if (files.length) addMassFiles(files); });
+  } else if (e.dataTransfer.files.length){
+    addMassFiles(e.dataTransfer.files);
+  }
+});
+document.getElementById('massFileInput').addEventListener('change', e => {
+  addMassFiles(e.target.files);
+  e.target.value = '';
+});
+async function collectMassEntries(entries, out){
+  for (const en of entries){
+    if (en.isFile){
+      await new Promise(res => en.file(f => { out.push(f); res(); }, res));
+    } else if (en.isDirectory){
+      const rd = en.createReader();
+      const kids = await new Promise(res => rd.readEntries(res, () => res([])));
+      await collectMassEntries(kids, out);
+    }
+  }
+  return out;
+}
+
+async function startMass(){
+  const mode = document.querySelector('#massSection .itab.active').dataset.mt;
+  const payload = {
+    judge: document.getElementById('massJudge').value.trim(),
+    country: document.getElementById('massCountry').value.trim(),
+    geo: document.getElementById('massGeo').checked,
+    retries: parseInt(document.getElementById('massRetries').value, 10) || 0,
+    timeout: parseInt(document.getElementById('massTimeout').value, 10) || 0,
+    threads: parseInt(document.getElementById('massThreads').value, 10) || 0,
+    skip_local: document.getElementById('massSkipLocal').checked
+  };
+  if (mode === 'path'){
+    payload.path = document.getElementById('massPath').value.trim();
+    if (!payload.path){ toast('Pega la ruta de un archivo o carpeta', true); return; }
+  } else if (mode === 'text'){
+    payload.text = document.getElementById('massText').value;
+    if (!payload.text.trim()){ toast('Pega tu lista de proxies', true); return; }
+  } else {
+    if (!massFiles.length){ toast('Añade al menos un archivo', true); return; }
+    payload.text = massFiles.map(f => '# ' + f.name + '\n' + f.text).join('\n');
+    if (payload.text.length > 20*1024*1024){ toast('El total supera 20 MB', true); return; }
+  }
+  const btn = document.getElementById('btnMassStart');
+  btn.disabled = true;
+  try{
+    const r = await jpost('/checker/start', payload);
+    if (r.ok){
+      toast('Checker masivo iniciado ✓');
+      document.getElementById('btnMassCancel').disabled = false;
+      document.getElementById('massProgress').hidden = false;
+      document.getElementById('massHitsWrap').hidden = false;
+      // si hay una consulta en vuelo, espera a que termine para no
+      // perder la cadena de sondeo (massPolling la descartaria)
+      const kick = () => { if (massPolling) setTimeout(kick, 100); else refreshMass(); };
+      kick();
+    }
+  }catch(e){
+    toast('Error iniciando el checker', true);
+    btn.disabled = false;
+  }
+}
+async function cancelMass(){
+  try{ await jpost('/checker/cancel', {}); toast('Cancelando…'); }catch(e){}
+}
+
+/* ---------------- borrado (input y vivos) ---------------- */
+let massHitsCache = [];      // ultimos hits renderizados (line unica por proxy)
+let massHitsProto = 'all';   // filtro activo de la tabla
+let massHasJob = false;      // hay un job con datos en el servidor
+const MASS_SCHEME_RE = /^(https?|socks4a?|socks5):\/\//i;
+
+function massDelHint(msg, err){
+  const el = document.getElementById('massDelHint');
+  if (el){
+    el.textContent = msg || '';
+    el.style.color = err ? 'var(--red)' : '';
+    if (msg) setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 4000);
+  }
+  if (msg) toast(msg, !!err);
+}
+
+// Borrar línea: quita la línea donde está el cursor (o la seleccionada).
+function massDelLine(){
+  const ta = document.getElementById('massText');
+  if (!ta || !ta.value){ massDelHint('Sin líneas que borrar', true); return; }
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  if (ta.value.slice(s, e).includes('\n')){ massDelHint('Selecciona una sola línea', true); return; }
+  const ls = ta.value.lastIndexOf('\n', s - 1) + 1;
+  let le = ta.value.indexOf('\n', s);
+  if (le < 0) le = ta.value.length;
+  const quitada = ta.value.slice(ls, le);
+  ta.value = ta.value.slice(0, ls) + ta.value.slice(le < ta.value.length ? le + 1 : le);
+  ta.selectionStart = ta.selectionEnd = Math.min(ls, ta.value.length);
+  massDelHint('Línea borrada: ' + quitada.trim().slice(0, 40));
+}
+
+// Borrar por protocolo: SOLO las líneas con esquema explícito.
+function massDelProto(proto){
+  const ta = document.getElementById('massText');
+  if (!ta || !ta.value){ massDelHint('Sin líneas que borrar', true); return; }
+  let removed = 0, noScheme = 0;
+  const keep = ta.value.split(/\r?\n/).filter(l => {
+    const t = l.trim();
+    if (!t || t.startsWith('#')) return true;
+    const m = MASS_SCHEME_RE.exec(t);
+    if (!m){ noScheme++; return true; }
+    const sc = m[1].toLowerCase();
+    const hit = (proto === 'http' && (sc === 'http' || sc === 'https')) ||
+                (proto === 'socks4' && (sc === 'socks4' || sc === 'socks4a')) ||
+                (proto === 'socks5' && sc === 'socks5');
+    if (hit){ removed++; return false; }
+    return true;
+  });
+  const suf = noScheme ? ' · ' + noScheme + ' sin esquema intactas' : '';
+  if (!removed){
+    massDelHint('Sin líneas ' + proto.toUpperCase() + suf +
+      (noScheme ? ' (el protocolo se decide al comprobar)' : ''), noScheme > 0);
+    return;
+  }
+  ta.value = keep.join('\n');
+  massDelHint(removed + ' línea(s) ' + proto.toUpperCase() + ' borrada(s)' + suf);
+}
+
+function massClearText(){
+  const ta = document.getElementById('massText');
+  if (ta && !ta.value){ massDelHint('El texto ya está vacío', true); return; }
+  if (!confirm('¿Vaciar todo el texto pegado?')) return;
+  ta.value = '';
+  massDelHint('Texto vaciado');
+}
+
+function massClearFiles(){
+  if (!massFiles.length){ massDelHint('Sin archivos cargados', true); return; }
+  if (!confirm('¿Quitar los ' + massFiles.length + ' archivo(s) cargados?')) return;
+  massFiles = [];
+  renderMassFiles();
+  toast('Archivos vaciados');
+}
+
+// POST /checker/remove (linea exacta, protocolo o todos).
+async function massRemoveReq(body){
+  try{
+    const r = await fetch('/checker/remove', {method:'POST',
+      headers:Object.assign({'Content-Type':'application/json'}, gwHeaders()),
+      body:JSON.stringify(body)});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok){
+      massDelHint(j.error || ('No se pudo borrar (' + r.status + ')'), true);
+      return null;
+    }
+    return j;
+  }catch(err){
+    massDelHint('No se pudo borrar (red)', true);
+    return null;
+  }
+}
+
+async function massRemoveLine(i){
+  const x = massHitsCache[i];
+  if (!x){ massDelHint('Fila ya no disponible', true); return; }
+  const j = await massRemoveReq({line:x.line});
+  if (!j) return;
+  toast((j.removed || 0) > 0
+    ? 'Vivo borrado (quedan ' + j.remaining + ')'
+    : 'Ese vivo ya no estaba');
+  refreshMass();
+}
+
+async function massRemoveSel(){
+  const ck = [].slice.call(document.querySelectorAll('#massHitsBody .mck:checked'));
+  if (!ck.length){ massDelHint('Marca primero las filas a borrar', true); return; }
+  if (!confirm('¿Borrar ' + ck.length + ' vivo(s) seleccionado(s)?')) return;
+  let total = 0, rest = null;
+  for (const c of ck){
+    const x = massHitsCache[parseInt(c.dataset.i, 10)];
+    if (!x) continue;
+    const j = await massRemoveReq({line:x.line});
+    if (j){ total += j.removed || 0; rest = j.remaining; }
+  }
+  if (rest !== null) toast('Borrados ' + total + ' vivo(s) · quedan ' + rest);
+  refreshMass();
+}
+
+async function massClearHits(){
+  if (!massHasJob){ massDelHint('Sin datos (ejecuta un checker masivo primero)', true); return; }
+  if (!confirm('¿Vaciar TODOS los vivos en memoria? (los .txt de Resultados/ quedan intactos)')) return;
+  const j = await massRemoveReq({proto:'all'});
+  if (j) toast('Vivos vaciados (' + j.remaining + ' restantes)');
+  refreshMass();
+}
+
+// Vaciar todo: texto + archivos + vivos en memoria (los .txt no se tocan).
+async function massClearAll(){
+  const ta = document.getElementById('massText');
+  const vacio = !(ta && ta.value) && !massFiles.length && !massHasJob;
+  if (vacio){ massDelHint('Nada que vaciar', true); return; }
+  if (!confirm('¿Vaciar TODO (texto, archivos y vivos en memoria)?')) return;
+  if (ta) ta.value = '';
+  massFiles = [];
+  renderMassFiles();
+  if (massHasJob){
+    const j = await massRemoveReq({proto:'all'});
+    if (j) toast('Todo vaciado · vivos restantes ' + j.remaining);
+  } else {
+    toast('Entrada vaciada');
+  }
+  refreshMass();
+}
+
+function massFilterHits(proto){
+  massHitsProto = proto || 'all';
+  [['mfAll', 'all'], ['mfHttp', 'http'], ['mfSocks4', 'socks4'], ['mfSocks5', 'socks5']]
+    .forEach(([id, p]) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('active', p === massHitsProto);
+    });
+  // con --api-token estas descargas exigen ?token= (el <a> no manda headers)
+  const qt = gwToken() ? '&token=' + encodeURIComponent(gwToken()) : '';
+  const exp = document.getElementById('expFull');
+  if (exp) exp.href = '/checker/export?proto=' + massHitsProto + '&format=full' + qt;
+  const exp2 = document.getElementById('expPlain');
+  if (exp2) exp2.href = '/checker/export?proto=' + massHitsProto + '&format=plain' + qt;
+  // pinta ya con el cache y deja que el servidor confirme (refresh en cola)
+  renderMassHits(massHitsCache.filter(h =>
+    massHitsProto === 'all' || h.proto === massHitsProto ||
+    (massHitsProto === 'socks4' && h.proto === 'socks4a')));
+  refreshMass();
+}
+
+function renderMassHits(hits){
+  const tb = document.getElementById('massHitsBody');
+  massHitsCache = hits;
+  if (!hits.length){
+    tb.innerHTML = '<tr class="emptyrow"><td colspan="7">sin vivos' +
+      (massHitsProto === 'all' ? '' : ' (' + massHitsProto + ')') + ' todavía</td></tr>';
+    return;
+  }
+  tb.innerHTML = hits.map((x, i) =>
+    `<tr data-line="${esc(x.line)}">
+      <td class="ck"><input type="checkbox" class="mck" data-i="${i}" title="seleccionar"></td>
+      <td class="mono">${esc(x.line)}</td>
+      <td><span class="scheme ${esc(x.proto)}">${esc(x.proto)}</span></td>
+      <td class="ping">${x.ping > 0 ? x.ping + ' ms' : '—'}</td>
+      <td>${esc(x.anon || '—')}</td>
+      <td>${esc(x.country || '—')}</td>
+      <td><button class="xbtn" title="Quitar vivo" onclick="massRemoveLine(${i})">×</button></td>
+    </tr>`).join('');
+}
+
+// seleccionar/ deseleccionar todo en la tabla de vivos
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'massCkAll'){
+    document.querySelectorAll('#massHitsBody .mck')
+      .forEach(c => { c.checked = e.target.checked; });
+  }
+});
+
+let massPolling = false, massQueued = false;
+async function refreshMass(){
+  if (massPolling){ massQueued = true; return; }   // no perdemos el refresh pedido
+  massPolling = true;
+  try {
+    let st;
+    try{ st = await jget('/checker/status'); }catch(e){ return; }
+    const started = st.running || st.done;
+    massHasJob = started;
+    document.getElementById('massProgress').hidden = !started;
+    document.getElementById('massHitsWrap').hidden = !started;
+    document.getElementById('btnMassStart').disabled = !!st.running;
+    document.getElementById('btnMassCancel').disabled = !st.running;
+    if (!started){
+      document.getElementById('massHint').textContent = 'Elige archivos, ruta o texto para empezar';
+      return;
+    }
+    document.getElementById('massBar').style.width = (st.pct || 0).toFixed(1) + '%';
+    const state = st.running ? 'corriendo' : (st.cancelled ? 'cancelado' : 'finalizado');
+    document.getElementById('massStats').innerHTML =
+      (st.error ? '<b style="color:#ff6b6b">' + esc(st.error) + '</b> — ' : '') +
+      state + ': <b>' + st.tested + '</b>/' + st.total +
+      ' · vivos <b>' + st.alive + '</b> (http ' + st.http + ', s4 ' + st.socks4 + ', s5 ' + st.socks5 + ')' +
+      ' · muertos ' + st.bad + (st.removed ? ' · borrados ' + st.removed : '') +
+      (st.filtered ? ' · filtrados ' + st.filtered : '') +
+      (st.retries ? ' · reintentos ' + st.retries : '') +
+      ' · ' + st.cpm + ' cpm · eta ' + st.eta +
+      (st.dynamic_ping ? ' · juez ' + st.dynamic_ping + 'ms' : '') +
+      (st.out_dir ? ' · <code>' + esc(st.out_dir) + '</code>' : '');
+    document.getElementById('massN').textContent = st.alive;
+    document.getElementById('massCPM').textContent = st.cpm + ' cpm';
+    document.getElementById('massETA').textContent = 'eta ' + st.eta;
+    document.getElementById('massHint').textContent =
+      st.running ? 'Checker en marcha…' : (st.cancelled ? 'Cancelado por el usuario' : 'Terminado');
+
+    try{
+      const q = massHitsProto && massHitsProto !== 'all' ? '&proto=' + massHitsProto : '';
+      const h = await jget('/checker/hits?limit=100' + q);
+      renderMassHits(h.hits || []);
+    }catch(e){}
+
+    try{
+      const c = await jget('/checker/countries');
+      const entries = Object.entries(c.countries || {}).sort((a, b) => b[1] - a[1]).slice(0, 30);
+      document.getElementById('massCountries').innerHTML = entries.length
+        ? 'Países: ' + entries.map(([k, v]) =>
+            '<span class="vchip proto">' + esc(k) + ' ' + v + '</span>').join(' ')
+        : (st.geo ? 'Sin países todavía' : '');
+    }catch(e){}
+
+    if (st.running) setTimeout(refreshMass, 2000);
+  } finally {
+    massPolling = false;
+    if (massQueued){ massQueued = false; refreshMass(); }
+  }
+}
+
+refresh();
+refreshProxies();
+refreshMass();
+// descargas directas (<a href>): /proxy.txt, /checker/export y
+// /checker/report exigen token cuando hay --api-token, y el <a> no
+// puede mandar cabeceras
+(function(){
+  const t = gwToken(); if (!t) return;
+  document.querySelectorAll('a[href*="/proxy.txt"],a[href*="/checker/export"],a[href*="/checker/report"]').forEach(a => {
+    const u = new URL(a.getAttribute('href'), location.href);
+    if (!u.searchParams.has('token')) u.searchParams.set('token', t);
+    a.setAttribute('href', u.pathname + u.search + u.hash);
+  });
+})();
+setInterval(refresh, 4000);
+setInterval(refreshProxies, 15000);
+</script>
+</body>
+</html>

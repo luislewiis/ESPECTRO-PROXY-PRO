@@ -1,0 +1,59 @@
+version: v1.25.3
+ignore:
+  go/PT:
+    - created: '2026-10-03T12:00:00.000Z'
+      reason: >-
+        Falso positivo (auditoria 03/10/2026): en api.go la ruta viene de
+        old.File (decision del servidor, no del usuario) y en import.go todo
+        input pasa primero por la jaula rutaPermitida + whitelist de
+        extension + tope de 5MB; el dato del usuario es el CONTENIDO del
+        fichero, no la ruta. Solo seria exploitable con --allow-any-path.
+      from:
+        - api.go
+        - import.go
+    - created: '2026-10-03T16:00:00.000Z'
+      reason: >-
+        lictool es una CLI local del vendedor: las rutas (-out/-key/-lic)
+        las provee el operador de su propia maquina; no hay entrada de
+        usuarios remotos.
+      from:
+        - lictool/main.go
+  javascript/DOMXSS:
+    - created: '2026-10-03T12:00:00.000Z'
+      reason: >-
+        Falso positivo: todos los sinks (innerHTML/insertAdjacentHTML) van
+        precedidos de esc(), que escapa & < > " y ' (endurecido el
+        03/10/2026). Verificado boton a boton en tests/test_panel_ui.mjs
+        (bloque B16: XSS de log y de fila sin inyectar elementos).
+      from:
+        - panel.html
+  go/ErrorMessage:
+    - created: '2026-10-03T12:00:00.000Z'
+      reason: >-
+        Falso positivo: herramienta local de escritorio; el stack del panic
+        se imprime SOLO en stderr de la consola del operador (es el mismo
+        comportamiento por defecto de un panic en Go). No hay exposicion de
+        red ni a terceros.
+      from:
+        - main.go
+  python/CommandInjection/test:
+    - created: '2026-10-03T12:00:00.000Z'
+      reason: >-
+        Tests: los argumentos de linea de comandos son literales internos del
+        propio test; no existe entrada de usuario externa.
+      from:
+        - tests/run_deep_tests.py
+        - tests/run_tests.py
+  python/PT/test:
+    - created: '2026-10-03T12:00:00.000Z'
+      reason: 'Tests: rutas fijas literales dentro de los propios tests.'
+      from:
+        - tests/run_deep_tests.py
+        - tests/test_sticky_api.py
+  javascript/HttpToHttps/test:
+    - created: '2026-10-03T12:00:00.000Z'
+      reason: >-
+        Tests: http://127.0.0.1 contra el servidor local de pruebas (Chrome
+        headless no aplica bloqueo mixed-content a localhost).
+      from:
+        - tests/test_panel_ui.mjs
