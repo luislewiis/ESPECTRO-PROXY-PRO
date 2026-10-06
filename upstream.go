@@ -65,23 +65,10 @@ func dialThrough(p *Proxy, target string, timeout time.Duration) (net.Conn, *buf
 	}
 }
 
-func readLineTimeout(br *bufio.Reader, limit int) (string, error) {
-	var sb strings.Builder
-	for {
-		line, err := br.ReadString('\n')
-		if err != nil {
-			return "", err
-		}
-		sb.WriteString(line)
-		if sb.Len() > limit {
-			return "", fmt.Errorf("cabecera demasiado larga")
-		}
-		if strings.HasSuffix(line, "\n") {
-			return sb.String(), nil
-		}
-	}
-}
-
+// httpConnect negocia CONNECT contra el proxy HTTP: la respuesta se lee con
+// readCappedLine (buffer fijo, tope DURANTE la lectura). Un proxy malicioso
+// que enviara datos sin '\n' durante el timeout no debe inflar bufio
+// (ReadString crece sin limite; era el antiguo readLineTimeout).
 func httpConnect(p *Proxy, target string, timeout time.Duration) (net.Conn, *bufio.Reader, error) {
 	c, err := dialRaw(p.Addr(), timeout)
 	if err != nil {
@@ -101,7 +88,7 @@ func httpConnect(p *Proxy, target string, timeout time.Duration) (net.Conn, *buf
 	}
 
 	br := bufio.NewReader(c)
-	status, err := readLineTimeout(br, 8192)
+	status, err := readCappedLine(br, 8192)
 	if err != nil {
 		c.Close()
 		return nil, nil, &upstreamError{err}
@@ -112,7 +99,7 @@ func httpConnect(p *Proxy, target string, timeout time.Duration) (net.Conn, *buf
 		code, _ = strconv.Atoi(fields[1])
 	}
 	for {
-		line, err := readLineTimeout(br, 65536)
+		line, err := readCappedLine(br, 65536)
 		if err != nil {
 			c.Close()
 			return nil, nil, &upstreamError{err}

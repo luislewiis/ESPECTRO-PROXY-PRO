@@ -1,9 +1,9 @@
 package main
 
 // Tests de la fase "token en lecturas + rate-limit" (02/10/2026):
-//   - con --api-token, /proxies, /proxy.txt, /checker/hits, /checker/export,
-//     /logs y /checker/report exigen token (401); sin configurarlo no cambia
-//     nada (modo local).
+//   - con --api-token, /proxies, /proxy.txt, /checker/status, /checker/hits,
+//     /checker/export, /logs y /checker/report exigen token (401); sin
+//     configurarlo no cambia nada (modo local).
 //   - tras authFailsMax fallos desde una IP se responde 429 (fuerza bruta)
 //     y el bloqueo expira tras authBlockDur; un acierto limpia los fallos.
 
@@ -22,7 +22,7 @@ func TestLecturasSensiblesExigenToken(t *testing.T) {
 	srv := httptest.NewServer(a.APIMux(18080, "127.0.0.1"))
 	defer srv.Close()
 
-	paths := []string{"/proxies", "/proxy.txt?format=ob", "/checker/hits", "/checker/export", "/logs", "/checker/report"}
+	paths := []string{"/proxies", "/proxy.txt?format=ob", "/checker/status", "/checker/hits", "/checker/export", "/logs", "/checker/report"}
 	get := func(url string) (int, string) {
 		resp, err := http.Get(url)
 		if err != nil {
@@ -43,8 +43,8 @@ func TestLecturasSensiblesExigenToken(t *testing.T) {
 	// con token en query (como los <a> del panel) -> pasa
 	// (200, o 404 en /checker/export y /checker/report: sin datos de checker)
 	want := map[string]int{
-		"/proxies": 200, "/proxy.txt?format=ob": 200, "/checker/hits": 200,
-		"/checker/export": 404, "/logs": 200, "/checker/report": 404,
+		"/proxies": 200, "/proxy.txt?format=ob": 200, "/checker/status": 200,
+		"/checker/hits": 200, "/checker/export": 404, "/logs": 200, "/checker/report": 404,
 	}
 	for p, w := range want {
 		sep := "?"

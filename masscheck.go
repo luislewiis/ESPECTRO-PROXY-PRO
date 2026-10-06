@@ -1135,6 +1135,12 @@ func (a *App) registerChecker(mux *http.ServeMux) {
 	})
 
 	mux.HandleFunc("/checker/status", func(w http.ResponseWriter, r *http.Request) {
+		// Lectura sensible (incluye source y out_dir, igual que
+		// /checker/report): con --api-token exige token. El panel siempre
+		// manda X-API-Token en jget, asi que la UI no se ve afectada.
+		if !a.leerOK(w, r) {
+			return
+		}
 		jsonOut(w, a.massStatusJSON())
 	})
 	mux.HandleFunc("/checker/hits", func(w http.ResponseWriter, r *http.Request) {

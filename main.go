@@ -189,7 +189,7 @@ func main() {
 	noBrowser := flag.Bool("no-browser", false, "no abrir la ventana ni el navegador del panel")
 	window := flag.Bool("window", false, "abrir la ventana del panel aunque no haya consola")
 	showConsole := flag.Bool("console", false, "mantener visible la ventana de consola (por defecto se oculta en doble-click)")
-	apiToken := flag.String("api-token", "", "token opcional: exige X-API-Token en mutantes y en lecturas sensibles (/proxies, /proxy.txt, /checker/hits|export)")
+	apiToken := flag.String("api-token", "", "token opcional: exige X-API-Token en mutantes y en lecturas sensibles (/proxies, /proxy.txt, /checker/status, /checker/hits|export)")
 	allowAnyPath := flag.Bool("allow-any-path", false, "permitir /validate y /import con rutas fuera de los directorios permitidos")
 	idleTimeout := flag.Int("idle-timeout", 600, "segundos de inactividad maxima en conexiones (0 = off) - watchdog RED-01")
 	checkTimeoutMs := flag.Int("check-timeout", 5000, "timeout en ms por intento de health-check")
@@ -324,6 +324,12 @@ func main() {
 		}
 		if abrirVentana(apiBase+"/panel", ocultar) {
 			fmt.Println("\n[gw] ventana cerrada - detenido")
+			// Mismo salvavidas que Ctrl+C: si un job del checker masivo
+			// esta en marcha, vuelca vivos + Report.json antes de morir
+			// (sin esto, cerrar la ventana perdia lo analizado).
+			if !app.massShutdown(10 * time.Second) {
+				fmt.Println("[gw] aviso: el checker masivo no llego a guardarse antes del cierre")
+			}
 			return
 		}
 		mostrarConsola()

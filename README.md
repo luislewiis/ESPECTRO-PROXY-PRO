@@ -73,8 +73,8 @@ compartida la consola no se toca y `--console` la mantiene visible.
   - `GET /checker/export?proto=all|http|socks4|socks5&format=full|plain` · `GET /checker/countries` · `GET /checker/report`
   - Salidas en `Resultados/[dd.mm.yy] [hh.mm.ss]/`: `Live_HTTP.txt`, `Live_SOCKS4.txt`, `Live_SOCKS5.txt`, `Paises Validados/<pais>.txt` (con geo) y `Report.json`.
 - Si `--api-token` está configurado, los endpoints de escritura exigen `X-API-Token`,
-  y las lecturas sensibles (`/proxies`, `/logs`, `/proxy.txt`, `/checker/hits`,
-  `/checker/export`, `/checker/report`) también (401); 10 fallos de token
+  y las lecturas sensibles (`/proxies`, `/logs`, `/proxy.txt`, `/checker/status`,
+  `/checker/hits`, `/checker/export`, `/checker/report`) también (401); 10 fallos de token
   desde una IP → 429 durante 2 min (`authLimiter`).
 
 ## Formatos de línea soportados

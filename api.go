@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
@@ -225,7 +226,11 @@ func (a *App) auth(r *http.Request) authResult {
 	if a.authLim.blocked(ip) {
 		return authBloqueado
 	}
-	if r.Header.Get("X-API-Token") == a.apiToken || r.URL.Query().Get("token") == a.apiToken {
+	// ConstantTimeCompare: la comparacion de tokens no debe filtrar
+	// prefijos por timing (el rate-limit ya frena la fuerza bruta).
+	okH := subtle.ConstantTimeCompare([]byte(r.Header.Get("X-API-Token")), []byte(a.apiToken))
+	okQ := subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("token")), []byte(a.apiToken))
+	if okH == 1 || okQ == 1 {
 		a.authLim.clear(ip)
 		return authOK
 	}
@@ -351,7 +356,8 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 <p class="note">Los endpoints marcados con POST exigen la cabecera <code>X-GW-Panel: 1</code>
 	y, si hay <code>--api-token</code>, tambien <code>X-API-Token</code>. Con <code>--api-token</code>,
 	las lecturas <code>/proxies</code>, <code>/logs</code>, <code>/proxy.txt</code>,
-	<code>/checker/hits</code>, <code>/checker/export</code> y <code>/checker/report</code>
+	<code>/checker/status</code>, <code>/checker/hits</code>, <code>/checker/export</code>
+	y <code>/checker/report</code>
 	exigen el token; tras 10 fallos la IP recibe 429 durante un rato.</p>
 	</div>`, alive, total, a.statsSnapshot().Strategy, html.EscapeString(gatewayBase), html.EscapeString(bind), httpPort)
 	})
@@ -442,7 +448,10 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 			offset = len(all)
 		}
 		end := len(all)
-		if offset+limit < end {
+		// Sin overflow: solo sumar cuando limit < resto (offset+len nunca
+		// puede desbordar; ?limit=MaxInt64 antes rompia con panic de slice
+		// porque offset+limit daba negativo y all[offset:end] petaba).
+		if limit < len(all)-offset {
 			end = offset + limit
 		}
 		jsonOut(w, map[string]interface{}{
