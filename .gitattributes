@@ -1,0 +1,7 @@
+# LF en todas partes: en CI (runner Windows, autocrlf=true) los .go llegaban
+# con CRLF y gofmt -l marcaba todos los archivos como "sin formatear".
+* text=auto eol=lf
+*.exe binary
+*.png binary
+*.jpg binary
+*.ico binary

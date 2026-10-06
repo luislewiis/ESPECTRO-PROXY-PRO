@@ -79,7 +79,7 @@ jobs:
 
       - name: firma pendiente de configurar SignPath
         if: ${{ env.SIGNPATH_API_TOKEN == '' }}
-        run: echo "::notice::Secrets de SignPath ausentes: binario sin firmar (ver cabecera de release.yml)"
+        run: 'echo "::notice::Secrets de SignPath ausentes: binario sin firmar (ver cabecera de release.yml)"'
 
       - name: verify firma
         if: ${{ env.SIGNPATH_API_TOKEN != '' }}
