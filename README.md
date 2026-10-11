@@ -27,6 +27,8 @@ compartida la consola no se toca y `--console` la mantiene visible.
 | `--bind` | `127.0.0.1` | Dirección de escucha (aviso si no es loopback) |
 | `--http-port` | `8080` | Puerto del gateway proxy |
 | `--api-port` | `8081` | Puerto de la API/panel |
+| `--auto-port` | `true` | Si un puerto está ocupado, usa el siguiente libre y avisa (log + notificación flotante con Continuar/Copiar/Cerrar en Windows). `--auto-port=false` → error clásico y sale |
+| `--no-notify` | `false` | No mostrar la notificación flotante al cambiar de puerto (tests/automatización) |
 | `--strategy` | `round-robin` | `round-robin` \| `random` \| `sticky` |
 | `--check-interval` | `60` | Segundos entre health-checks (0 = off); el primer check espera al intervalo |
 | `--check-batch` | `1000` | Proxies chequeados por ciclo de health-check (0 = todos); rota por `LastCheck` (menos recientes primero) |
@@ -42,6 +44,16 @@ compartida la consola no se toca y `--console` la mantiene visible.
 | `--console` | `false` | Mantiene visible la ventana de consola (por defecto se cierra en doble-click) |
 | `--version` | | Imprime versión, build y licencia, y sale |
 | `--no-browser` / `--window` / `--quiet` / `--check-now` | | UX y utilidades |
+
+## Compatibilidad con checkers de proxy (OpenBullet M2 y similares)
+
+Los checkers de proxy comprueban el proxy con un `GET /` **contra el propio
+puerto del proxy**. El gateway detecta esas auto-solicitudes (loopback en su
+mismo puerto) y les responde **200 en local** con un texto claro, en vez de
+relayarlas hacia el exterior (que devolvería 502 y el checker marcaría el
+proxy como muerto). Un `CONNECT` hacia el propio gateway se rechaza con 403.
+Configura el checker con tipo **HTTP** y la dirección `127.0.0.1:<puerto del
+gateway>` (nunca SOCKS: el gateway solo acepta conexiones HTTP de clientes).
 
 ## API
 

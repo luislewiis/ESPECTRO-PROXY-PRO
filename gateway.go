@@ -312,6 +312,13 @@ func (a *App) handleConnect(client net.Conn, target string, h map[string]string)
 			}
 		}
 	}
+	// Igual que en handlePlain: CONNECT contra el propio gateway no se
+	// relaya (seria un tunel hacia uno mismo); se rechaza rapido.
+	if a.esAutoSolicitud(target) {
+		client.Write([]byte("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"))
+		a.logf("CONNECT al propio gateway (%s) rechazado", target)
+		return
+	}
 	session := SessionFromHeaders(h)
 	exclude := make(map[*Proxy]bool)
 	var lastErr error
@@ -346,6 +353,43 @@ func (a *App) handleConnect(client net.Conn, target string, h map[string]string)
 	a.stats.Errors.Add(1)
 	client.Write([]byte("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n"))
 	a.logf("502 CONNECT %s: sin proxy util (%v)", target, lastErr)
+}
+
+// esAutoSolicitud indica si el destino host:puerto es el propio puerto del
+// gateway en loopback (p. ej. 127.0.0.1:8082 cuando el gateway escucha en
+// 8082). El caso real: el proxy-check de OpenBullet comprueba el proxy
+// pidiendole a el mismo un "GET /".
+func (a *App) esAutoSolicitud(hostPuerto string) bool {
+	if a.gwPort <= 0 {
+		return false
+	}
+	host, puerto, err := net.SplitHostPort(hostPuerto)
+	if err != nil {
+		return false
+	}
+	if puerto != strconv.Itoa(a.gwPort) {
+		return false
+	}
+	host = strings.Trim(host, "[]")
+	return host == "localhost" || host == "::1" || strings.HasPrefix(host, "127.")
+}
+
+// respondeAuto contesta en local a una auto-solicitud con un 200: los
+// checkers de proxy (OpenBullet y similares) lo interpretan como "proxy
+// vivo" y dejan de marcarlo como muerto. Aprovecha para explicar en el
+// cuerpo que este puerto es la entrada del proxy y donde esta el panel.
+func (a *App) respondeAuto(client net.Conn, method string) {
+	if method == "HEAD" {
+		client.Write([]byte("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"))
+	} else {
+		body := fmt.Sprintf("ESPECTRO PROXY PRO: proxy activo (check OK, puerto %d)\r\n"+
+			"Este puerto es la ENTRADA del proxy, no una pagina web.\r\n"+
+			"Panel: http://127.0.0.1:%d/panel\r\n", a.gwPort, a.apiPort)
+		client.Write([]byte(fmt.Sprintf(
+			"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
+			len(body), body)))
+	}
+	a.logf("auto-check: respondido 200 a %s (checker de proxy en el puerto %d)", method, a.gwPort)
 }
 
 func (a *App) tunnel(client, up net.Conn, upBr *bufio.Reader) {
@@ -393,6 +437,15 @@ func (a *App) handlePlain(client net.Conn, br *bufio.Reader, method, target stri
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		client.Write([]byte("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"))
+		return
+	}
+	// Auto-solicitud: el destino es el propio puerto del gateway. El
+	// proxy-check de OpenBullet (y similares) manda "GET /" al proxy para
+	// ver si responde; relayarlo hacia el exterior lo dejaria pidiendo su
+	// propio localhost via proxies remotos (inalcanzable -> 502 y el
+	// checker lo marcaria muerto). Se contesta 200 en local.
+	if a.esAutoSolicitud(u.Host) {
+		a.respondeAuto(client, method)
 		return
 	}
 	// cuerpo del request: deadline de inactividad para no colgarse con

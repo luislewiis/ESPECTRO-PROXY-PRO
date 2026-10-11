@@ -60,6 +60,12 @@ type App struct {
 
 	checkBatch int // proxies chequeados por ciclo (0 = todos)
 
+	// Puertos propios: gwPort es el del gateway proxy (se detectan
+	// auto-solicitudes: checkers de proxy tipo OpenBullet hacen "GET /" al
+	// propio proxy y hay que responderles 200 en local, no relayarlos).
+	gwPort  int
+	apiPort int
+
 	// Health-check configurado (flags).
 	checkTimeout time.Duration // timeout por intento de check
 	checkRetries int           // reintentos extra antes de marcar muerto (estilo Espectro)

@@ -77,7 +77,7 @@ def start_helper(script, *args):
 def start_gw(listfile, http_port, api_port, *extra, stdout=None):
     cmd = [GW, listfile, "--http-port", str(http_port), "--api-port", str(api_port),
            "--check-interval", "0", "--test-url", "http://" + TARGET + "/",
-           "--no-browser", "--no-state"]
+           "--no-browser", "--no-state", "--no-notify"]
     cmd += list(extra)
     out = stdout if stdout else subprocess.DEVNULL
     p = subprocess.Popen(cmd, cwd=TEMP, stdout=out, stderr=out)
@@ -87,7 +87,7 @@ def start_gw(listfile, http_port, api_port, *extra, stdout=None):
 def start_cli(listfile, *extra, stdout_file, stderr_file):
     fo = open(stdout_file, "w")
     fe = open(stderr_file, "w")
-    p = subprocess.Popen([GW, listfile, "--no-state", *extra], cwd=TEMP, stdout=fo, stderr=fe)
+    p = subprocess.Popen([GW, listfile, "--no-state", "--no-notify", *extra], cwd=TEMP, stdout=fo, stderr=fe)
     procs.append(p)
     return p, fo, fe
 
@@ -576,6 +576,7 @@ try:
     check("S10 --strategy invalida exit 2", p.returncode == 2 and "--strategy" in err, "rc=%s err=%s" % (p.returncode, err[:100]))
 
     p, fo, fe = start_cli(l_gwa, "--http-port", "18430", "--api-port", "18468", "--no-browser",
+                          "--auto-port=false",
                           stdout_file=os.path.join(WORK, "cli2.out"),
                           stderr_file=os.path.join(WORK, "cli2.err"))
     p.wait(timeout=10)
@@ -820,14 +821,15 @@ try:
     check("S14 /import payload >5MB -> rechazado",
           "JSON invalido" in body14 or "5 MB" in body14, code14 + " " + body14[:160])
 
-    # e) puerto ocupado -> exit 1 con mensaje y sin quedarse en la pausa
+    # e) puerto ocupado + --auto-port=false -> exit 1 con mensaje y sin
+    #    quedarse en la pausa (el camino clasico se mantiene para CI/tests)
     ocup14 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     ocup14.bind(("127.0.0.1", 18486))
     ocup14.listen(1)
     try:
         p14 = subprocess.run(
             [GW, s14list, "--http-port", "18486", "--api-port", "18487",
-             "--check-interval", "0", "--no-state", "--no-browser"],
+             "--check-interval", "0", "--no-state", "--no-browser", "--auto-port=false"],
             cwd=WORK, capture_output=True, text=True, encoding="utf-8",
             errors="replace", timeout=30, stdin=subprocess.DEVNULL)
         exit14, out14 = p14.returncode, (p14.stdout or "") + (p14.stderr or "")
@@ -865,6 +867,49 @@ try:
                                "http://127.0.0.1:18431/checker/start")
     check("S14 /checker/start path traversal -> acceso denegado", "denegado" in body14,
           code14 + " " + body14[:160])
+
+    # i) auto-port (default ON): un puerto ocupado no mata la app - pasa al
+    #    siguiente libre, sigue viva y lo informa por consola (la notificacion
+    #    flotante no se muestra porque stdin no es consola en los tests)
+    ocup14i = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    ocup14i.bind(("127.0.0.1", 18490))
+    ocup14i.listen(1)
+    p14i = None
+    try:
+        # via start_gw con PIPE (sin archivos): la salida se recolecta tras
+        # el kill; stdout y stderr vienen por separado
+        p14i = start_gw(s14list, 18490, 18491, stdout=subprocess.PIPE)  # 18490 ocupado -> gw 18492
+        panel14i = api_wait(18491, tries=60)
+        vivo14i = p14i.poll() is None
+        cgw14i, _bgw14i = curl_code("http://127.0.0.1:18492/")
+        check("S14 auto-port: 18490 ocupado -> API 18491 + gateway 18492 vivos",
+              panel14i and vivo14i and cgw14i not in ("", "000"),
+              "panel=%s vivo=%s gw=%s" % (panel14i, vivo14i, cgw14i))
+        p14i.kill()
+        salida14i = ""
+        try:
+            o14i, e14i = p14i.communicate(timeout=10)
+            salida14i = ((o14i or b"").decode("utf-8", "replace") +
+                         (e14i or b"").decode("utf-8", "replace"))
+        except Exception:
+            pass
+        check("S14 auto-port: informa 'puerto 18490 ocupado -> usando el 18492'",
+              "puerto 18490 ocupado" in salida14i and "usando el 18492" in salida14i,
+              salida14i[:220])
+    finally:
+        if p14i and p14i.poll() is None:
+            p14i.kill()
+        ocup14i.close()
+
+    # j) proxy-check estilo OpenBullet: "GET /" al propio puerto del gateway
+    #    -> 200 local (no se relaya hacia proxies remotos inalcanzables);
+    #    CONNECT al propio gateway -> 403 rapido
+    code14j, body14j = curl_code("http://127.0.0.1:18430/")
+    check("S14 proxy-check: GET al puerto del gateway responde 200",
+          code14j == "200" and "proxy activo" in body14j,
+          code14j + " " + body14j[:120])
+    out14j = raw(18430, "CONNECT 127.0.0.1:18430 HTTP/1.1\r\nHost: 127.0.0.1:18430\r\n\r\n")
+    check("S14 proxy-check: CONNECT al propio gateway -> 403", "403" in out14j, out14j[:120])
 
 finally:
     for p in procs:

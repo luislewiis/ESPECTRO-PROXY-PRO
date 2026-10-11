@@ -164,6 +164,44 @@ func reorderArgs() {
 	os.Args = append([]string{os.Args[0]}, append(flags, files...)...)
 }
 
+// cambioPuerto describe un puerto que hubo que mover al arrancar porque
+// otra cosa (otra instancia, un contenedor Docker, etc.) lo tenía ocupado.
+type cambioPuerto struct {
+	que          string // "gateway proxy" | "API/panel"
+	viejo, nuevo int
+}
+
+// buscarPuertoLibre devuelve el primer puerto libre desde 'desde' (hasta
+// +100 intentos), excluyendo los puertos indicados en 'excluir' (p. ej. el
+// otro puerto configurado para no pisarse entre gateway y API). Devuelve
+// también el listener ya abierto en ese puerto.
+func buscarPuertoLibre(bind string, desde int, excluir ...int) (int, net.Listener, error) {
+	var primerErr error
+	for p := desde; p < desde+100 && p <= 65535; p++ {
+		saltar := false
+		for _, e := range excluir {
+			if p == e {
+				saltar = true
+				break
+			}
+		}
+		if saltar {
+			continue
+		}
+		ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", bind, p))
+		if err == nil {
+			return p, ln, nil
+		}
+		if primerErr == nil {
+			primerErr = err
+		}
+	}
+	if primerErr == nil {
+		primerErr = fmt.Errorf("sin puertos libres en el rango %d-%d", desde, desde+99)
+	}
+	return 0, nil, primerErr
+}
+
 func main() {
 	// Panic recovery (herencia Security Shield V3): un panic en main imprime
 	// el error y mantiene la consola visible (en doble-click la ventana se
@@ -180,6 +218,8 @@ func main() {
 	bind := flag.String("bind", "127.0.0.1", "direccion de escucha")
 	httpPort := flag.Int("http-port", 8080, "puerto del gateway proxy")
 	apiPort := flag.Int("api-port", 8081, "puerto de la API y el panel")
+	autoPort := flag.Bool("auto-port", true, "si un puerto esta ocupado, usa el siguiente libre y avisa con notificacion flotante (--auto-port=false para salir con error)")
+	noNotify := flag.Bool("no-notify", false, "no mostrar la notificacion flotante al cambiar de puerto (tests/automatizacion)")
 	strategy := flag.String("strategy", "round-robin", "round-robin | random | sticky")
 	checkInterval := flag.Int("check-interval", 60, "segundos entre health-checks (0 = off)")
 	checkBatch := flag.Int("check-batch", 1000, "proxies chequeados por ciclo de health-check (0 = todos)")
@@ -282,21 +322,62 @@ func main() {
 		return
 	}
 
+	// --- Puertos: con --auto-port (default) un puerto ocupado no mata la
+	// app: se salta al siguiente libre y se avisa (consola + notificacion
+	// flotante con Continuar/Copiar/Cerrar en sesion interactiva). Con
+	// --auto-port=false se conserva el error clasico (tests y CI).
+	var cambiosPuertos []cambioPuerto
 	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", *bind, *httpPort))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: no se pudo abrir el puerto %d: %v\n", *httpPort, err)
-		fmt.Fprintln(os.Stderr, "       (¿ya hay otra instancia corriendo? usa --http-port 9090)")
-		pausaSiConsola()
-		os.Exit(1)
+		if !*autoPort {
+			fmt.Fprintf(os.Stderr, "ERROR: no se pudo abrir el puerto %d: %v\n", *httpPort, err)
+			fmt.Fprintln(os.Stderr, "       (¿ya hay otra instancia corriendo? usa --http-port 9090)")
+			pausaSiConsola()
+			os.Exit(1)
+		}
+		viejo := *httpPort
+		nuevo, ln2, err2 := buscarPuertoLibre(*bind, viejo, *apiPort)
+		if err2 != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: no se pudo abrir el puerto %d: %v\n", viejo, err)
+			fmt.Fprintf(os.Stderr, "       (sin puertos libres en %d-%d; usa --http-port para fijarlo)\n", viejo, viejo+99)
+			pausaSiConsola()
+			os.Exit(1)
+		}
+		*httpPort = nuevo
+		ln = ln2
+		cambiosPuertos = append(cambiosPuertos, cambioPuerto{"gateway proxy", viejo, nuevo})
 	}
-	go app.ServeGateway(ln)
 
 	lnAPI, err := net.Listen("tcp", fmt.Sprintf("%s:%d", *bind, *apiPort))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: no se pudo abrir el puerto %d: %v\n", *apiPort, err)
-		pausaSiConsola()
-		os.Exit(1)
+		if !*autoPort {
+			fmt.Fprintf(os.Stderr, "ERROR: no se pudo abrir el puerto %d: %v\n", *apiPort, err)
+			pausaSiConsola()
+			os.Exit(1)
+		}
+		viejo := *apiPort
+		nuevo, ln2, err2 := buscarPuertoLibre(*bind, viejo, *httpPort)
+		if err2 != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: no se pudo abrir el puerto %d: %v\n", viejo, err)
+			pausaSiConsola()
+			os.Exit(1)
+		}
+		*apiPort = nuevo
+		lnAPI = ln2
+		cambiosPuertos = append(cambiosPuertos, cambioPuerto{"API/panel", viejo, nuevo})
 	}
+
+	app.gwPort, app.apiPort = *httpPort, *apiPort
+
+	// Aviso inmediato por consola/panel: el log no bloquea nada. La
+	// notificacion flotante va despues de arrancar los servidores.
+	if len(cambiosPuertos) > 0 {
+		for _, c := range cambiosPuertos {
+			app.logf("AVISO: puerto %d ocupado -> usando el %d (%s)", c.viejo, c.nuevo, c.que)
+		}
+	}
+
+	go app.ServeGateway(ln)
 	// MaxHeaderBytes: tope de cabeceras de la API (64 KB) — sin esto un
 	// cliente podia enviar cabeceras enormes hasta agotar memoria.
 	apiSrv := &http.Server{
@@ -305,6 +386,24 @@ func main() {
 		MaxHeaderBytes:    64 << 10,
 	}
 	go apiSrv.Serve(lnAPI)
+
+	// Notificacion flotante (Continuar/Copiar/Cerrar) con los servidores ya
+	// activos: el aviso jamas retrasa ni impide el arranque (el timeout de
+	// 25s degrada a "continuar"). Solo en sesion interactiva real (consola
+	// viva o --window) y sin --no-notify; en tests/CI no aparece nunca
+	// (stdin es pipe, --no-notify en los helpers o CI definido).
+	if len(cambiosPuertos) > 0 && !*noNotify && (stdinEsConsola() || *window) {
+		urlCopia := fmt.Sprintf("gateway: %s:%d\r\npanel:   http://%s:%d/panel",
+			*bind, *httpPort, *bind, *apiPort)
+		switch notificarCambiosPuerto(cambiosPuertos, urlCopia) {
+		case "cerrar":
+			fmt.Println("[gw] cierre pedido en la notificacion de puerto ocupado")
+			return
+		case "copiar":
+			app.logf("URL copiada al portapapeles: gateway %s:%d | panel http://%s:%d/panel",
+				*bind, *httpPort, *bind, *apiPort)
+		}
+	}
 
 	go app.CheckerLoop()
 	go app.SessionSweeper()
