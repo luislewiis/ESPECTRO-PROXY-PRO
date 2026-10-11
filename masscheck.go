@@ -19,6 +19,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 )
 
 // ============================ Checker Masivo ============================
@@ -135,6 +136,30 @@ func extractCountry(body string) string {
 		return m[1]
 	}
 	return ""
+}
+
+// nombrePaisArchivo normaliza el country devuelto por el juez para usarlo
+// como nombre de fichero SEGURO. El valor viene de la respuesta REMOTA del
+// juez (ip-api.com via http://, manipulable con MITM, o un juez a medida):
+// usarse crudo permitia path traversal ("../../x" creaba .txt fuera de
+// Resultados). Se queda solo con letras/digitos Unicode (la enye de
+// "españa" se conserva), espacios, guiones y guion bajo: sin separadores
+// de ruta ni puntos no sobra ningun "../" ni "..\". Vacio -> "Desconocido".
+func nombrePaisArchivo(pais string) string {
+	var b strings.Builder
+	for _, r := range pais {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == ' ' || r == '-' || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	s := strings.TrimSpace(b.String())
+	if runes := []rune(s); len(runes) > 60 {
+		s = strings.TrimSpace(string(runes[:60]))
+	}
+	if s == "" {
+		return "Desconocido"
+	}
+	return s
 }
 
 // normalizeCountryInput: diccionario fuzzy EN->ES estilo Espectro
@@ -659,26 +684,30 @@ func (j *massJob) addHit(h massHit) {
 		bw.WriteString("\n")
 	}
 	if j.geo && h.Country != "" && h.Country != "Desconocido" {
-		safe := strings.ReplaceAll(h.Country, "/", "_")
-		bw, ok := j.cbw[safe]
-		if !ok {
-			if j.cfile == nil {
-				j.cfile = map[string]*os.File{}
-				j.cbw = map[string]*bufio.Writer{}
+		// nombre de fichero saneado (ver nombrePaisArchivo): country crudo
+		// del juez remoto = path traversal potencial, jamas.
+		safe := nombrePaisArchivo(h.Country)
+		if safe != "Desconocido" {
+			bw, ok := j.cbw[safe]
+			if !ok {
+				if j.cfile == nil {
+					j.cfile = map[string]*os.File{}
+					j.cbw = map[string]*bufio.Writer{}
+				}
+				paisDir := filepath.Join(j.dir, "Paises Validados")
+				os.MkdirAll(paisDir, 0755)
+				f, err := os.OpenFile(filepath.Join(paisDir, safe+".txt"),
+					os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				if err == nil {
+					bw = bufio.NewWriter(f)
+					j.cbw[safe] = bw
+					j.cfile[safe] = f
+				}
 			}
-			paisDir := filepath.Join(j.dir, "Paises Validados")
-			os.MkdirAll(paisDir, 0755)
-			f, err := os.OpenFile(filepath.Join(paisDir, safe+".txt"),
-				os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if err == nil {
-				bw = bufio.NewWriter(f)
-				j.cbw[safe] = bw
-				j.cfile[safe] = f
+			if bw != nil {
+				bw.WriteString(full)
+				bw.WriteString("\n")
 			}
-		}
-		if bw != nil {
-			bw.WriteString(full)
-			bw.WriteString("\n")
 		}
 	}
 }

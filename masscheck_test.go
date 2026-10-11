@@ -808,3 +808,36 @@ func TestSendDiscord(t *testing.T) {
 		t.Error("webhook caido debio devolver error")
 	}
 }
+
+/* ---------------- sanitizado de nombres de pais (auditoria) ---------------- */
+
+// TestNombrePaisArchivo: el nombre de pais viene de la respuesta REMOTA del
+// juez (http:// ip-api.com, manipulable con MITM, o juez a medida) y se usa
+// como nombre de fichero dentro de Resultados. Debe sobrevivir a intentos
+// de path traversal ("../../x", "..\evil") y conservar los nombres normales
+// (acentos incluidos: la enye de "españa" sobrevive).
+func TestNombrePaisArchivo(t *testing.T) {
+	casos := map[string]string{
+		"United States":    "United States",
+		"Corea del Sur":    "Corea del Sur",
+		"españa":           "españa",
+		"Brazil":           "Brazil",
+		"../../etc/passwd": "etcpasswd", // separadores y puntos: fuera
+		`..\..\evil`:       "evil",
+		"..\\..\\..\\hack": "hack",
+		"..":               "Desconocido",
+		"///":              "Desconocido",
+		"":                 "Desconocido",
+		"a/b\\c:d*e?f":     "abcdef",
+		"con\tdos\ttabs":   "condostabs",
+	}
+	for in, want := range casos {
+		if got := nombrePaisArchivo(in); got != want {
+			t.Errorf("nombrePaisArchivo(%q) = %q, esperaba %q", in, got, want)
+		}
+	}
+	// tope de longitud: un juez hostil no debe generar nombres gigantes
+	if n := len([]rune(nombrePaisArchivo(strings.Repeat("X", 500)))); n > 60 {
+		t.Errorf("el nombre quedo en %d runes, esperaba <= 60", n)
+	}
+}

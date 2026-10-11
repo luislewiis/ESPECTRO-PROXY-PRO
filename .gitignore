@@ -2,6 +2,7 @@
 ProxyGateway.exe
 lictool.exe
 *.exe
+*.exe~
 *.test
 *.out
 
