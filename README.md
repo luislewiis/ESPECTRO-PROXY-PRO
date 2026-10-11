@@ -60,6 +60,8 @@ gateway>` (nunca SOCKS: el gateway solo acepta conexiones HTTP de clientes).
 - **Lectura (GET)**: `/get?session=X`, `/stats`, `/proxies`, `/logs`, `/proxy.txt`, `/panel`
   - `/proxies?limit=&offset=&sort=ping` (JSON con `checked`, `ping_ms`, `last_check`).
   - `/proxy.txt?sort=ping` exporta los vivos ordenados por latencia.
+  - `/proxy.txt?scheme=http|socks4|socks4a|socks5` exporta **solo ese protocolo** (la lista viva es mixta: así OB M2 monta una Remote Proxy Source por tipo sin falsos muertos).
+  - `/proxy.txt?format=ob` exporta en formato nativo de OpenBullet (`tipo:host:puerto:user:pass`).
 - **Escritura (POST + cabecera `X-GW-Panel: 1`)**: `/reload`, `/set-strategy?strategy=`, `/check`, `/proxy-remove`, `/proxy-edit`
   - `/check?scope=alive` reanaliza solo vivos + sin verificar; sin parámetro = toda la lista.
   - `/proxy-remove` `{"scope":"dead|alive|all"}` o `{"keys":["scheme|host|port|user", ...]}` →

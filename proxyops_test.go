@@ -7,6 +7,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -331,6 +332,79 @@ func panelPost(t *testing.T, url, body string) (int, map[string]interface{}) {
 	var m map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&m)
 	return resp.StatusCode, m
+}
+
+// TestProxyTxtFiltroScheme: /proxy.txt?scheme= filtra la lista viva por
+// protocolo para que OB M2 pueda montar una Remote Proxy Source por tipo
+// (la lista viva es mixta: sin el filtro, una fuente con un unico Type
+// daria por muertos todos los proxies de otro protocolo).
+func TestProxyTxtFiltroScheme(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "mixta.txt")
+	datos := "socks5://11.1.1.1:1080\nsocks5://11.1.1.2:1080\n" +
+		"socks4://22.1.1.1:1080\nhttp://33.1.1.1:3128\nsocks4a://44.1.1.1:1080\n"
+	if err := os.WriteFile(f, []byte(datos), 0644); err != nil {
+		t.Fatal(err)
+	}
+	a := NewApp([]string{f}, "round-robin", true, 0, "")
+	a.LoadProxies()
+	for _, h := range []string{"11.1.1.1", "22.1.1.1", "33.1.1.1", "44.1.1.1"} {
+		marcaEstado(a, h, true)
+	}
+	ts := httptest.NewServer(a.APIMux(18080, "127.0.0.1"))
+	defer ts.Close()
+
+	get := func(url string) []string {
+		resp, err := http.Get(ts.URL + url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		var lines []string
+		for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+			if l != "" {
+				lines = append(lines, l)
+			}
+		}
+		return lines
+	}
+
+	casos := []struct {
+		url  string
+		want []string
+	}{
+		{"/proxy.txt", []string{"11.1.1.1:1080", "11.1.1.2:1080", "22.1.1.1:1080", "33.1.1.1:3128", "44.1.1.1:1080"}},
+		{"/proxy.txt?scheme=socks5", []string{"11.1.1.1:1080", "11.1.1.2:1080"}},
+		{"/proxy.txt?scheme=socks4", []string{"22.1.1.1:1080"}},
+		{"/proxy.txt?scheme=socks4a", []string{"44.1.1.1:1080"}},
+		{"/proxy.txt?scheme=http", []string{"33.1.1.1:3128"}},
+	}
+	for _, c := range casos {
+		got := get(c.url)
+		if strings.Join(got, "|") != strings.Join(c.want, "|") {
+			t.Errorf("%s = %v, esperaba %v", c.url, got, c.want)
+		}
+	}
+	// formato OB con filtro: el tipo sale correcto (2 = socks5)
+	got := get("/proxy.txt?format=ob&scheme=socks4")
+	if len(got) != 1 || !strings.HasPrefix(got[0], "1:22.1.1.1:1080:") {
+		t.Errorf("format=ob&scheme=socks4 = %v", got)
+	}
+}
+
+// TestOBFormat: el tipo exportado para OB debe ser 0=http, 1=socks4/socks4a,
+// 2=socks5 (socks4a no existe en OB: se exporta como socks4).
+func TestOBFormat(t *testing.T) {
+	casos := map[string]string{
+		"http": "0:", "socks4": "1:", "socks4a": "1:", "socks5": "2:",
+	}
+	for scheme, want := range casos {
+		p := &Proxy{Scheme: scheme, Host: "1.2.3.4", Port: 1080}
+		if got := p.OB(); !strings.HasPrefix(got, want) {
+			t.Errorf("OB() de %s = %q, debia empezar por %q", scheme, got, want)
+		}
+	}
 }
 
 func TestProxyRemoveEndpoint(t *testing.T) {

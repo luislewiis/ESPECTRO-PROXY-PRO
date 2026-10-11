@@ -477,11 +477,24 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 			return
 		}
 		format := r.URL.Query().Get("format")
+		// scheme: filtra por protocolo (http|socks4|socks4a|socks5). La lista
+		// viva es mixta; sin el filtro, una fuente remota de OB con un unico
+		// Type daria por muertos todos los proxies de otro protocolo.
+		scheme := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scheme")))
 		list := a.AliveList()
 		if len(list) == 0 {
 			a.mu.Lock()
 			list = append([]*Proxy(nil), a.proxies...)
 			a.mu.Unlock()
+		}
+		if scheme != "" {
+			filtrada := make([]*Proxy, 0, len(list))
+			for _, p := range list {
+				if p.Scheme == scheme {
+					filtrada = append(filtrada, p)
+				}
+			}
+			list = filtrada
 		}
 		if r.URL.Query().Get("sort") == "ping" {
 			// Exporta el vivo mas rapido primero (estilo xRisky: latencia

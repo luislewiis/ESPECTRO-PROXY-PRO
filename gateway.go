@@ -382,9 +382,13 @@ func (a *App) respondeAuto(client net.Conn, method string) {
 	if method == "HEAD" {
 		client.Write([]byte("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"))
 	} else {
+		// El panel se menciona con "localhost" a proposito: con la IP
+		// (127.0.0.1:8081) este cuerpo coincidia con la regex tipica de
+		// scraping de proxies (IP:PUERTO) y OB M2 importaba el puerto de la
+		// API como "proxy" (muerto al instante: es la API, no un proxy).
 		body := fmt.Sprintf("ESPECTRO PROXY PRO: proxy activo (check OK, puerto %d)\r\n"+
 			"Este puerto es la ENTRADA del proxy, no una pagina web.\r\n"+
-			"Panel: http://127.0.0.1:%d/panel\r\n", a.gwPort, a.apiPort)
+			"Panel: http://localhost:%d/panel\r\n", a.gwPort, a.apiPort)
 		client.Write([]byte(fmt.Sprintf(
 			"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
 			len(body), body)))

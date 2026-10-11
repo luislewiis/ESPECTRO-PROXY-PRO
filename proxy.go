@@ -67,7 +67,9 @@ func (p *Proxy) LineaCanon() string {
 
 func (p *Proxy) OB() string {
 	t := "0"
-	if v, ok := map[string]string{"http": "0", "socks4": "1", "socks5": "2"}[p.Scheme]; ok {
+	// socks4a no existe como tipo en OB: se exporta como socks4 (1), no
+	// como http (0), que es lo que hacia el default del mapa.
+	if v, ok := map[string]string{"http": "0", "socks4": "1", "socks4a": "1", "socks5": "2"}[p.Scheme]; ok {
 		t = v
 	}
 	return t + ":" + p.Host + ":" + strconv.Itoa(p.Port) + ":" + p.User + ":" + p.Password
