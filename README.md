@@ -25,7 +25,7 @@ compartida la consola no se toca y `--console` la mantiene visible.
 | Flag | Default | Descripción |
 |---|---|---|
 | `--bind` | `127.0.0.1` | Dirección de escucha (aviso si no es loopback) |
-| `--http-port` | `8080` | Puerto del gateway proxy |
+| `--http-port` | `8080` | Puerto del gateway proxy. **Acepta varios separados por comas** (`8082,823,8084`): el mismo gateway se sirve en todos a la vez, como DataImpulse (80/8080/823) |
 | `--api-port` | `8081` | Puerto de la API/panel |
 | `--auto-port` | `true` | Si un puerto está ocupado, usa el siguiente libre y avisa (log + notificación flotante con Continuar/Copiar/Cerrar en Windows). `--auto-port=false` → error clásico y sale |
 | `--no-notify` | `false` | No mostrar la notificación flotante al cambiar de puerto (tests/automatización) |
@@ -45,15 +45,27 @@ compartida la consola no se toca y `--console` la mantiene visible.
 | `--version` | | Imprime versión, build y licencia, y sale |
 | `--no-browser` / `--window` / `--quiet` / `--check-now` | | UX y utilidades |
 
-## Compatibilidad con checkers de proxy (OpenBullet M2 y similares)
+## Compatibilidad con checkers de proxy (OpenBullet M2, SilverBullet y similares)
 
-Los checkers de proxy comprueban el proxy con un `GET /` **contra el propio
-puerto del proxy**. El gateway detecta esas auto-solicitudes (loopback en su
-mismo puerto) y les responde **200 en local** con un texto claro, en vez de
-relayarlas hacia el exterior (que devolvería 502 y el checker marcaría el
-proxy como muerto). Un `CONNECT` hacia el propio gateway se rechaza con 403.
-Configura el checker con tipo **HTTP** y la dirección `127.0.0.1:<puerto del
-gateway>` (nunca SOCKS: el gateway solo acepta conexiones HTTP de clientes).
+El gateway es un **endpoint proxy universal**: habla proxy-HTTP estandar hacia
+el cliente (con `Proxy-Authorization` para sesiones) y por dentro saca el
+trafico por los proxies reales del pool (socks4/socks5/http), igual que hace
+DataImpulse. Los checkers de proxy comprueban el proxy con un `GET /`
+**contra el propio puerto del proxy**; el gateway detecta esas auto-solicitudes
+(loopback en cualquiera de sus puertos) y les responde **200 en local** con un
+texto claro, en vez de relayarlas hacia el exterior (que devolveria 502 y el
+checker marcaria el proxy como muerto). Un `CONNECT` hacia el propio gateway se
+rechaza con 403.
+
+Linea de proxy para pegar en OB M2 / SilverBullet (una sola):
+
+| Pegas | Resultado |
+|---|---|
+| `127.0.0.1:8082` | Rota la IP en cada peticion (como DataImpulse por defecto) |
+| `127.0.0.1:8082:usuario:clave` | IP fija para esa sesion (como `user-session-123`) |
+
+Con `--http-port 8082,823` esos mismos proxies valen por **cualquiera** de los
+puertos (los checkers nunca marcan ninguno como muerto).
 
 ## API
 

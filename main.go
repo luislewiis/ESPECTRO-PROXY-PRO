@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -202,6 +203,28 @@ func buscarPuertoLibre(bind string, desde int, excluir ...int) (int, net.Listene
 	return 0, nil, primerErr
 }
 
+// parsePuertos interpreta --http-port: un puerto ("8082") o varios separados
+// por comas ("8082,823,8084") para servir el MISMO gateway en varios puertos
+// a la vez, como hace DataImpulse (80/8080/823...). Los tokens invalidos o
+// repetidos se ignoran; si no queda ninguno valido devuelve nil.
+func parsePuertos(spec string) []int {
+	var out []int
+	visto := make(map[int]bool)
+	for _, tok := range strings.Split(spec, ",") {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
+		p, err := strconv.Atoi(tok)
+		if err != nil || p < 1 || p > 65535 || visto[p] {
+			continue
+		}
+		visto[p] = true
+		out = append(out, p)
+	}
+	return out
+}
+
 func main() {
 	// Panic recovery (herencia Security Shield V3): un panic en main imprime
 	// el error y mantiene la consola visible (en doble-click la ventana se
@@ -216,7 +239,7 @@ func main() {
 
 	reorderArgs()
 	bind := flag.String("bind", "127.0.0.1", "direccion de escucha")
-	httpPort := flag.Int("http-port", 8080, "puerto del gateway proxy")
+	httpPort := flag.String("http-port", "8080", "puerto(s) del gateway proxy: uno (8082) o varios separados por comas (8082,823) para servir el mismo endpoint en varios puertos, como DataImpulse")
 	apiPort := flag.Int("api-port", 8081, "puerto de la API y el panel")
 	autoPort := flag.Bool("auto-port", true, "si un puerto esta ocupado, usa el siguiente libre y avisa con notificacion flotante (--auto-port=false para salir con error)")
 	noNotify := flag.Bool("no-notify", false, "no mostrar la notificacion flotante al cambiar de puerto (tests/automatizacion)")
@@ -322,30 +345,52 @@ func main() {
 		return
 	}
 
-	// --- Puertos: con --auto-port (default) un puerto ocupado no mata la
-	// app: se salta al siguiente libre y se avisa (consola + notificacion
-	// flotante con Continuar/Copiar/Cerrar en sesion interactiva). Con
-	// --auto-port=false se conserva el error clasico (tests y CI).
+	// --- Puertos del gateway: --http-port acepta uno ("8082") o varios
+	// separados por comas ("8082,823,8084"): el MISMO gateway se sirve en
+	// todos a la vez, como hace DataImpulse con sus 80/8080/823, para que
+	// los usuarios conecten por el puerto que ya conozcan. Con
+	// --auto-port (default) un puerto ocupado no mata la app: se salta al
+	// siguiente libre y se avisa. Con --auto-port=false el PRIMARIO
+	// conserva el error clasico (tests y CI); los extras se omiten.
+	solicitados := parsePuertos(*httpPort)
+	if len(solicitados) == 0 {
+		solicitados = []int{8080}
+	}
+	type gwListener struct {
+		ln     net.Listener
+		puerto int
+	}
+	var listeners []gwListener
 	var cambiosPuertos []cambioPuerto
-	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", *bind, *httpPort))
-	if err != nil {
-		if !*autoPort {
-			fmt.Fprintf(os.Stderr, "ERROR: no se pudo abrir el puerto %d: %v\n", *httpPort, err)
-			fmt.Fprintln(os.Stderr, "       (¿ya hay otra instancia corriendo? usa --http-port 9090)")
-			pausaSiConsola()
-			os.Exit(1)
+	for i, p := range solicitados {
+		excluir := append([]int{*apiPort}, solicitados[i+1:]...)
+		for _, l := range listeners {
+			excluir = append(excluir, l.puerto)
 		}
-		viejo := *httpPort
-		nuevo, ln2, err2 := buscarPuertoLibre(*bind, viejo, *apiPort)
-		if err2 != nil {
-			fmt.Fprintf(os.Stderr, "ERROR: no se pudo abrir el puerto %d: %v\n", viejo, err)
-			fmt.Fprintf(os.Stderr, "       (sin puertos libres en %d-%d; usa --http-port para fijarlo)\n", viejo, viejo+99)
-			pausaSiConsola()
-			os.Exit(1)
+		ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", *bind, p))
+		if err != nil {
+			if !*autoPort && i == 0 {
+				fmt.Fprintf(os.Stderr, "ERROR: no se pudo abrir el puerto %d: %v\n", p, err)
+				fmt.Fprintln(os.Stderr, "       (¿ya hay otra instancia corriendo? usa --http-port 9090)")
+				pausaSiConsola()
+				os.Exit(1)
+			}
+			nuevo, ln2, err2 := buscarPuertoLibre(*bind, p, excluir...)
+			if err2 != nil {
+				if i == 0 {
+					fmt.Fprintf(os.Stderr, "ERROR: no se pudo abrir el puerto %d: %v\n", p, err)
+					fmt.Fprintf(os.Stderr, "       (sin puertos libres en %d-%d; usa --http-port para fijarlo)\n", p, p+99)
+					pausaSiConsola()
+					os.Exit(1)
+				}
+				app.logf("AVISO: puerto extra %d sin alternativa libre, se omite", p)
+				continue
+			}
+			ln = ln2
+			cambiosPuertos = append(cambiosPuertos, cambioPuerto{"gateway proxy", p, nuevo})
+			p = nuevo
 		}
-		*httpPort = nuevo
-		ln = ln2
-		cambiosPuertos = append(cambiosPuertos, cambioPuerto{"gateway proxy", viejo, nuevo})
+		listeners = append(listeners, gwListener{ln, p})
 	}
 
 	lnAPI, err := net.Listen("tcp", fmt.Sprintf("%s:%d", *bind, *apiPort))
@@ -356,7 +401,12 @@ func main() {
 			os.Exit(1)
 		}
 		viejo := *apiPort
-		nuevo, ln2, err2 := buscarPuertoLibre(*bind, viejo, *httpPort)
+		excluir := make([]int, 0, len(listeners)+1)
+		excluir = append(excluir, viejo)
+		for _, l := range listeners {
+			excluir = append(excluir, l.puerto)
+		}
+		nuevo, ln2, err2 := buscarPuertoLibre(*bind, viejo, excluir...)
 		if err2 != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: no se pudo abrir el puerto %d: %v\n", viejo, err)
 			pausaSiConsola()
@@ -367,7 +417,14 @@ func main() {
 		cambiosPuertos = append(cambiosPuertos, cambioPuerto{"API/panel", viejo, nuevo})
 	}
 
-	app.gwPort, app.apiPort = *httpPort, *apiPort
+	// gwPort = primario (para mostrar); gwPorts = TODOS los puertos propios
+	// (la auto-deteccion de proxy-check vale en cualquiera de ellos).
+	app.gwPort = listeners[0].puerto
+	app.gwPorts = make(map[string]bool, len(listeners))
+	for _, l := range listeners {
+		app.gwPorts[strconv.Itoa(l.puerto)] = true
+	}
+	app.apiPort = *apiPort
 
 	// Aviso inmediato por consola/panel: el log no bloquea nada. La
 	// notificacion flotante va despues de arrancar los servidores.
@@ -377,11 +434,13 @@ func main() {
 		}
 	}
 
-	go app.ServeGateway(ln)
+	for _, l := range listeners {
+		go app.ServeGateway(l.ln)
+	}
 	// MaxHeaderBytes: tope de cabeceras de la API (64 KB) — sin esto un
 	// cliente podia enviar cabeceras enormes hasta agotar memoria.
 	apiSrv := &http.Server{
-		Handler:           app.APIMux(*httpPort, *bind),
+		Handler:           app.APIMux(app.gwPort, *bind),
 		ReadHeaderTimeout: 10 * time.Second,
 		MaxHeaderBytes:    64 << 10,
 	}
@@ -394,14 +453,14 @@ func main() {
 	// (stdin es pipe, --no-notify en los helpers o CI definido).
 	if len(cambiosPuertos) > 0 && !*noNotify && (stdinEsConsola() || *window) {
 		urlCopia := fmt.Sprintf("gateway: %s:%d\r\npanel:   http://%s:%d/panel",
-			*bind, *httpPort, *bind, *apiPort)
+			*bind, app.gwPort, *bind, *apiPort)
 		switch notificarCambiosPuerto(cambiosPuertos, urlCopia) {
 		case "cerrar":
 			fmt.Println("[gw] cierre pedido en la notificacion de puerto ocupado")
 			return
 		case "copiar":
 			app.logf("URL copiada al portapapeles: gateway %s:%d | panel http://%s:%d/panel",
-				*bind, *httpPort, *bind, *apiPort)
+				*bind, app.gwPort, *bind, *apiPort)
 		}
 	}
 
@@ -454,6 +513,8 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	_ = apiSrv.Shutdown(ctx)
 	cancel()
-	ln.Close() // ServeGateway sale con net.ErrClosed
+	for _, l := range listeners {
+		l.ln.Close() // ServeGateway sale con net.ErrClosed
+	}
 	fmt.Println("[gw] detenido")
 }

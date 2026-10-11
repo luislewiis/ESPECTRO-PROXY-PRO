@@ -355,19 +355,17 @@ func (a *App) handleConnect(client net.Conn, target string, h map[string]string)
 	a.logf("502 CONNECT %s: sin proxy util (%v)", target, lastErr)
 }
 
-// esAutoSolicitud indica si el destino host:puerto es el propio puerto del
-// gateway en loopback (p. ej. 127.0.0.1:8082 cuando el gateway escucha en
-// 8082). El caso real: el proxy-check de OpenBullet comprueba el proxy
-// pidiendole a el mismo un "GET /".
+// esAutoSolicitud indica si el destino host:puerto es uno de los puertos
+// propios del gateway en loopback (p. ej. 127.0.0.1:8082 o 127.0.0.1:823
+// cuando escucha en ambos). El caso real: el proxy-check de OpenBullet
+// (y SilverBullet) comprueba el proxy pidiendole a el mismo un "GET /".
 func (a *App) esAutoSolicitud(hostPuerto string) bool {
-	if a.gwPort <= 0 {
-		return false
-	}
 	host, puerto, err := net.SplitHostPort(hostPuerto)
 	if err != nil {
 		return false
 	}
-	if puerto != strconv.Itoa(a.gwPort) {
+	// cualquier puerto propio (multi-puerto) o el primario (compatibilidad)
+	if !a.gwPorts[puerto] && puerto != strconv.Itoa(a.gwPort) {
 		return false
 	}
 	host = strings.Trim(host, "[]")
@@ -375,10 +373,14 @@ func (a *App) esAutoSolicitud(hostPuerto string) bool {
 }
 
 // respondeAuto contesta en local a una auto-solicitud con un 200: los
-// checkers de proxy (OpenBullet y similares) lo interpretan como "proxy
-// vivo" y dejan de marcarlo como muerto. Aprovecha para explicar en el
-// cuerpo que este puerto es la entrada del proxy y donde esta el panel.
-func (a *App) respondeAuto(client net.Conn, method string) {
+// checkers de proxy (OpenBullet, SilverBullet y similares) lo interpretan
+// como "proxy vivo" y dejan de marcarlo como muerto. Aprovecha para
+// explicar en el cuerpo que este puerto es la entrada del proxy y donde
+// esta el panel.
+func (a *App) respondeAuto(client net.Conn, method string, puerto string) {
+	if puerto == "" {
+		puerto = strconv.Itoa(a.gwPort)
+	}
 	if method == "HEAD" {
 		client.Write([]byte("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"))
 	} else {
@@ -386,14 +388,14 @@ func (a *App) respondeAuto(client net.Conn, method string) {
 		// (127.0.0.1:8081) este cuerpo coincidia con la regex tipica de
 		// scraping de proxies (IP:PUERTO) y OB M2 importaba el puerto de la
 		// API como "proxy" (muerto al instante: es la API, no un proxy).
-		body := fmt.Sprintf("ESPECTRO PROXY PRO: proxy activo (check OK, puerto %d)\r\n"+
+		body := fmt.Sprintf("ESPECTRO PROXY PRO: proxy activo (check OK, puerto %s)\r\n"+
 			"Este puerto es la ENTRADA del proxy, no una pagina web.\r\n"+
-			"Panel: http://localhost:%d/panel\r\n", a.gwPort, a.apiPort)
+			"Panel: http://localhost:%d/panel\r\n", puerto, a.apiPort)
 		client.Write([]byte(fmt.Sprintf(
 			"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
 			len(body), body)))
 	}
-	a.logf("auto-check: respondido 200 a %s (checker de proxy en el puerto %d)", method, a.gwPort)
+	a.logf("auto-check: respondido 200 a %s (checker de proxy en el puerto %s)", method, puerto)
 }
 
 func (a *App) tunnel(client, up net.Conn, upBr *bufio.Reader) {
@@ -449,7 +451,7 @@ func (a *App) handlePlain(client net.Conn, br *bufio.Reader, method, target stri
 	// propio localhost via proxies remotos (inalcanzable -> 502 y el
 	// checker lo marcaria muerto). Se contesta 200 en local.
 	if a.esAutoSolicitud(u.Host) {
-		a.respondeAuto(client, method)
+		a.respondeAuto(client, method, u.Port())
 		return
 	}
 	// cuerpo del request: deadline de inactividad para no colgarse con

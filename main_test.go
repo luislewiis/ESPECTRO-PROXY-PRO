@@ -136,3 +136,53 @@ func TestEsAutoSolicitud(t *testing.T) {
 		t.Error("con gwPort=0 no debe detectar auto-solicitud")
 	}
 }
+
+// TestEsAutoSolicitudMultiPuerto: con el gateway escuchando en varios
+// puertos (estilo DataImpulse 80/8080/823), el proxy-check de CUALQUIERA de
+// ellos debe detectarse como auto-solicitud y responderse 200 en local.
+func TestEsAutoSolicitudMultiPuerto(t *testing.T) {
+	a := &App{
+		gwPort:  8082,
+		gwPorts: map[string]bool{"8082": true, "823": true, "8084": true},
+	}
+	for _, hp := range []string{"127.0.0.1:8082", "127.0.0.1:823", "127.0.0.1:8084", "localhost:823"} {
+		if !a.esAutoSolicitud(hp) {
+			t.Errorf("esAutoSolicitud(%q) = false, esperaba true (puerto propio)", hp)
+		}
+	}
+	for _, hp := range []string{"127.0.0.1:9090", "8.8.8.8:823", "example.com:823"} {
+		if a.esAutoSolicitud(hp) {
+			t.Errorf("esAutoSolicitud(%q) = true, esperaba false", hp)
+		}
+	}
+}
+
+// TestParsePuertos: --http-port acepta uno o varios separados por comas.
+func TestParsePuertos(t *testing.T) {
+	casos := []struct {
+		in   string
+		want []int
+	}{
+		{"8080", []int{8080}},
+		{"8082,823", []int{8082, 823}},
+		{" 8082 , 823 , 8084 ", []int{8082, 823, 8084}},
+		{"8082,823,8082", []int{8082, 823}},        // repetido: una sola vez
+		{"823,abc,8084,0,70000", []int{823, 8084}}, // invalidos: fuera
+		{"", nil},
+		{"   ", nil},
+		{"bichos", nil},
+	}
+	for _, c := range casos {
+		got := parsePuertos(c.in)
+		if len(got) != len(c.want) {
+			t.Errorf("parsePuertos(%q) = %v, esperaba %v", c.in, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("parsePuertos(%q) = %v, esperaba %v", c.in, got, c.want)
+				break
+			}
+		}
+	}
+}

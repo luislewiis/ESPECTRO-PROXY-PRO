@@ -63,7 +63,10 @@ type App struct {
 	// Puertos propios: gwPort es el del gateway proxy (se detectan
 	// auto-solicitudes: checkers de proxy tipo OpenBullet hacen "GET /" al
 	// propio proxy y hay que responderles 200 en local, no relayarlos).
+	// gwPorts = TODOS los puertos propios (multi-puerto, estilo DataImpulse
+	// 80/8080/823): la auto-deteccion vale para cualquiera de ellos.
 	gwPort  int
+	gwPorts map[string]bool
 	apiPort int
 
 	// Health-check configurado (flags).

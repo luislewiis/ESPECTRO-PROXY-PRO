@@ -911,6 +911,26 @@ try:
     out14j = raw(18430, "CONNECT 127.0.0.1:18430 HTTP/1.1\r\nHost: 127.0.0.1:18430\r\n\r\n")
     check("S14 proxy-check: CONNECT al propio gateway -> 403", "403" in out14j, out14j[:120])
 
+    # k) multi-puerto (estilo DataImpulse 80/8080/823): el MISMO gateway
+    #    servido en varios puertos a la vez; el proxy-check responde 200 en
+    #    TODOS (los checkers de OB/SilverBullet no marcan ninguno muerto)
+    p14k = start_gw(l_gwa, "18460,18461", 18462)
+    time.sleep(1.5)
+    try:
+        code14k, body14k = curl_code("http://127.0.0.1:18460/")
+        check("S14 multi-puerto: proxy-check en el 1er puerto -> 200",
+              code14k == "200" and "proxy activo" in body14k,
+              code14k + " " + body14k[:120])
+        code14k2, body14k2 = curl_code("http://127.0.0.1:18461/")
+        check("S14 multi-puerto: proxy-check en el 2o puerto -> 200",
+              code14k2 == "200" and "puerto 18461" in body14k2,
+              code14k2 + " " + body14k2[:120])
+        out14k = raw(18461, "CONNECT 127.0.0.1:18461 HTTP/1.1\r\nHost: 127.0.0.1:18461\r\n\r\n")
+        check("S14 multi-puerto: CONNECT al 2o puerto -> 403", "403" in out14k, out14k[:120])
+    finally:
+        if p14k.poll() is None:
+            p14k.kill()
+
 finally:
     for p in procs:
         try:
