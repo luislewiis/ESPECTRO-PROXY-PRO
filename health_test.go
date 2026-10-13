@@ -251,3 +251,48 @@ func TestLoadProxiesConservaEstadoDeAnalisis(t *testing.T) {
 			a.proxies[0].Alive, a.proxies[0].Checked, a.proxies[0].LastCheck)
 	}
 }
+
+// TestHealthCheckConnect: valida la bandera --check-connect (auditoria 12/10/2026).
+// Si un proxy pasa GET pero falla en CONNECT (502), healthCheckFull con
+// checkConnect=true debe darlo por muerto, mientras que checkConnect=false
+// lo clasificaba como vivo.
+func TestHealthCheckConnect(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				buf := make([]byte, 1024)
+				n, _ := c.Read(buf)
+				req := string(buf[:n])
+				if strings.HasPrefix(req, "CONNECT ") {
+					fmt.Fprint(c, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
+				} else if strings.HasPrefix(req, "GET ") {
+					fmt.Fprint(c, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+				}
+			}(c)
+		}
+	}()
+
+	p := &Proxy{Scheme: "http", Host: "127.0.0.1", Port: ln.Addr().(*net.TCPAddr).Port, Alive: true}
+	// Con checkConnect=false (modo clasico GET), el proxy pasa:
+	okGet, _ := healthCheckFull(p, "http://127.0.0.1/", 2*1000000000, false)
+	if !okGet {
+		t.Error("esperaba okGet=true con checkConnect=false")
+	}
+
+	// Con checkConnect=true (modo tunel), el proxy debe fallar (dio 502):
+	okConnect, _ := healthCheckFull(p, "http://127.0.0.1:443/", 2*1000000000, true)
+	if okConnect {
+		t.Error("esperaba okConnect=false cuando el proxy da 502 en CONNECT")
+	}
+}

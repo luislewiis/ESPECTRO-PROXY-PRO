@@ -257,6 +257,7 @@ func main() {
 	idleTimeout := flag.Int("idle-timeout", 600, "segundos de inactividad maxima en conexiones (0 = off) - watchdog RED-01")
 	checkTimeoutMs := flag.Int("check-timeout", 5000, "timeout en ms por intento de health-check")
 	checkRetries := flag.Int("check-retries", 1, "reintentos extra por proxy antes de darlo por muerto (0 = sin reintentos)")
+	checkConnect := flag.Bool("check-connect", false, "el health-check usa CONNECT (tunel) en vez de GET: detecta proxies que pasan el check pero no tunelizan (502 en CONNECT)")
 	checkAll := flag.Bool("check-all", false, "el auto-check revisa tambien los muertos verificados (default: solo vivos + sin verificar)")
 	noCooldown := flag.Bool("no-cooldown", false, "desactiva el enfriamiento de proxies fallados en la rotacion (A/B y diagnostico)")
 	noState := flag.Bool("no-state", false, "no persistir el estado de analisis (no crea <lista>.state.json)")
@@ -310,6 +311,7 @@ func main() {
 	app.checkTimeout = time.Duration(*checkTimeoutMs) * time.Millisecond
 	app.checkRetries = *checkRetries
 	app.checkAll = *checkAll
+	app.checkConnect = *checkConnect
 	app.sinEnfriar = *noCooldown
 	app.stateDisabled = *noState
 	app.stateFile = *stateFileFlag

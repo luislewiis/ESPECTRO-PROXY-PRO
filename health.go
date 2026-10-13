@@ -21,15 +21,18 @@ func basicToken(user, pass string) string {
 // healthCheckFull intenta usar p contra testURL. Devuelve si el proxy
 // responde (ok) y el ping en milisegundos (TTFB hasta la linea de estado,
 // estilo EspectroProxy). timeout aplica a dial+lectura de cada intento.
-func healthCheckFull(p *Proxy, testURL string, timeout time.Duration) (bool, int) {
-	ok, ping, _ := healthCheckBody(p, testURL, timeout, 0)
+// checkConnect=true: usa CONNECT (tunel) en vez de GET para validar;
+// detecta proxies que pasan GET pero devuelven 502 en CONNECT.
+func healthCheckFull(p *Proxy, testURL string, timeout time.Duration, checkConnect bool) (bool, int) {
+	ok, ping, _ := healthCheckBody(p, testURL, timeout, 0, checkConnect)
 	return ok, ping
 }
 
 // healthCheckBody es healthCheckFull con lectura opcional de cuerpo:
 // maxBody > 0 consume headers y devuelve hasta maxBody bytes del body
 // (el checker masivo los usa para extraer GeoIP/anonimato del juez).
-func healthCheckBody(p *Proxy, testURL string, timeout time.Duration, maxBody int) (bool, int, string) {
+// checkConnect=true: valida CONNECT en vez de GET (solo rama HTTP).
+func healthCheckBody(p *Proxy, testURL string, timeout time.Duration, maxBody int, checkConnect bool) (bool, int, string) {
 	start := time.Now()
 	u, err := url.Parse(testURL)
 	if err != nil {
@@ -55,6 +58,39 @@ func healthCheckBody(p *Proxy, testURL string, timeout time.Duration, maxBody in
 		}
 		defer c.Close()
 		c.SetDeadline(time.Now().Add(timeout))
+
+		if checkConnect {
+			// Modo CONNECT: valida que el proxy pueda tunelizar (lo que usa OB M2).
+			// Enviamos CONNECT al host:puerto del testURL y esperamos 200.
+			connectReq := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n", u.Host, u.Host)
+			if p.User != "" {
+				connectReq += "Proxy-Authorization: Basic " + basicToken(p.User, p.Password) + "\r\n"
+			}
+			connectReq += "\r\n"
+			if _, err := io.WriteString(c, connectReq); err != nil {
+				return false, 0, ""
+			}
+			br := bufio.NewReader(c)
+			line, err := readCappedLine(br, 8192)
+			if err != nil || !strings.HasPrefix(line, "HTTP/") {
+				return false, 0, ""
+			}
+			f := strings.Fields(line)
+			if len(f) < 2 || f[1] != "200" {
+				// 407 = credenciales invalidas; otros !=200 = no tuneliza
+				return false, 0, ""
+			}
+			// Consumir headers restantes
+			for {
+				h, err := readCappedLine(br, 8192)
+				if err != nil || h == "\r\n" || h == "\n" {
+					break
+				}
+			}
+			return true, int(time.Since(start).Milliseconds()), ""
+		}
+
+		// Modo GET (default): compatible hacia atras, valida GET simple.
 		req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n", testURL, u.Host)
 		if p.User != "" {
 			req += "Proxy-Authorization: Basic " + basicToken(p.User, p.Password) + "\r\n"
@@ -120,7 +156,7 @@ func readBodyLimited(br *bufio.Reader, max int) string {
 
 // healthCheck: wrapper booleano (compat con tests y usos existentes).
 func healthCheck(p *Proxy, testURL string) bool {
-	ok, _ := healthCheckFull(p, testURL, 5*time.Second)
+	ok, _ := healthCheckFull(p, testURL, 5*time.Second, false)
 	return ok
 }
 
@@ -185,7 +221,7 @@ func (a *App) runChecksScope(scope string) {
 			// muerto (golpes de red no mueren proxies sanos).
 			ok, ping := false, 0
 			for attempt := 0; attempt <= retries; attempt++ {
-				ok, ping = healthCheckFull(p, a.testURL, timeout)
+				ok, ping = healthCheckFull(p, a.testURL, timeout, a.checkConnect)
 				if ok {
 					break
 				}

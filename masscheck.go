@@ -346,7 +346,7 @@ func massProbe(it *massItem, judge string, timeout time.Duration, geo bool) (str
 	}
 	for _, s := range schemes {
 		tp := &Proxy{Scheme: s, Host: it.host, Port: it.port, User: it.user, Password: it.pass}
-		ok, ping, body := healthCheckBody(tp, judge, timeout, maxBody)
+		ok, ping, body := healthCheckBody(tp, judge, timeout, maxBody, false)
 		if ok {
 			country := ""
 			if geo {

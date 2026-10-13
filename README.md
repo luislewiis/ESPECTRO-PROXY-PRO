@@ -34,6 +34,7 @@ compartida la consola no se toca y `--console` la mantiene visible.
 | `--check-batch` | `1000` | Proxies chequeados por ciclo de health-check (0 = todos); rota por `LastCheck` (menos recientes primero) |
 | `--check-timeout` | `5000` | Timeout en ms por intento de health-check |
 | `--check-retries` | `1` | Reintentos extra por proxy antes de darlo por muerto (0 = sin reintentos) |
+| `--check-connect` | `false` | El health-check usa CONNECT (tunel) en vez de GET: detecta proxies que pasan el check pero no tunelizan (502 en CONNECT) |
 | `--check-all` | `false` | El auto-check revisa también los muertos verificados (por defecto solo vivos + sin verificar) |
 | `--no-cooldown` | `false` | Desactiva el enfriamiento de proxies fallados en la rotación (diagnóstico/A-B: cada proxy que falla se aparta 45s) |
 | `--no-state` | `false` | No persistir el estado de analisis (no crea `<lista>.state.json`) |
@@ -140,7 +141,7 @@ El nombre del archivo infiere el esquema (`socks5_x.txt` → socks5).
 ## Tests
 
 ```powershell
-gofmt -l . ; go vet . ; go test -count=1 . ./internal/... ; go test -race -count=1 . ./internal/...   # 104+9 tests, coverage 61.0% (lic 71.4%)
+gofmt -l . ; go vet . ; go test -count=1 . ./internal/... ; go test -race -count=1 . ./internal/...   # 104+9 tests, coverage 60.6% (lic 71.4%)
 go test -run "^$" -bench . -benchmem
 go test -fuzz=FuzzReadHead -fuzztime=15s . ; go test -fuzz=FuzzUnseal -fuzztime=15s ./internal/lic   # fuzz (4 targets)
 python tests\run_tests.py        # suite funcional (19)
@@ -300,8 +301,8 @@ node tests\test_panel_ui.mjs     # suite UI boton a boton (273: vm + Chrome head
   toolchain en GOMODCACHE), fuzz `FuzzUnseal` (4,3 M execs sin panic),
   clave privada verificada ausente del binario, archivos de comunidad
   (`LICENSE` GPLv3, `SECURITY.md`, `.gitignore`, CI) y `.snyk` con los
-  FPs ampliados. Tests: **88+9**, coverage 60.1% (lic 71.4%); batería
-  completa en verde sobre el binario ofuscado (19 + 105 + 25 + 266).
+  FPs ampliados. Tests: **104+9**, coverage 60.6% (lic 71.4%); batería
+  completa en verde sobre el binario ofuscado (19 + 112 + 25 + 273).
 - **Optimización de rendimiento + fix de "pausas" de OB (12/10/2026)**:
   cache de `http.Transport` por upstream (keep-alive reutilizado, TTL 90s
   + sweeper; relay ~200µs/op en micro-benchmark), buffers de 64 KB con
@@ -317,6 +318,13 @@ node tests\test_panel_ui.mjs     # suite UI boton a boton (273: vm + Chrome head
   como fallo del proxy. `/checker/countries` ahora exige token. Tests:
   `transport_test.go`, `enfriar_test.go`, `TestCONNECT502MarcaUpstream`,
   `TestSocks5REP*` y `TestSocks4RepIdentd*`.
+- **Health-check CONNECT (12/10/2026 — pass 2)**: flag `--check-connect`
+  para que el health-check valide con `CONNECT` (túnel) en vez de `GET`.
+  Detecta y mata preventivamente los proxies que pasan el GET del check
+  pero devuelven 502 en CONNECT (lo que usa OB M2). Sin esto, esos proxies
+  se colaban en el pool "vivo" y solo morían en el relay (reintentos +
+  enfriamiento 45s); con `--check-connect` el auto-check los detecta en
+  la validación periódica. Tests: `health_test.go` (cobertura nueva).
 
 ## Estructura
 
