@@ -3,6 +3,11 @@ import ssl
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+# tls_cert.pem / tls_key.pem: par autofirmado DESECHABLE generado solo
+# para los tests locales (S3/S14). No usar jamas fuera de tests ni en
+# produccion; regenerar con:
+#   openssl req -x509 -newkey rsa:2048 -nodes -keyout tls_key.pem -out tls_cert.pem -days 365 -subj "/CN=localhost"
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 

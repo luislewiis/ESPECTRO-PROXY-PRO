@@ -75,7 +75,7 @@ function phaseA() {
   const ctx = vm.createContext(sandbox);
   try {
     vm.runInContext(
-      m[1] + '\n;globalThis.__F={fmtBytes,esc,splitHP,parsePort,bareScheme,schemeFromName,stickyLink,parseProxyLine,validateBatch,mergeReports,protoChips,massDelProto,massDelLine};globalThis.__setPD=v=>{proxyData=v;};',
+      m[1] + '\n;globalThis.__F={fmtBytes,esc,splitHP,parsePort,bareScheme,schemeFromName,stickyLink,obLine,parseProxyLine,validateBatch,mergeReports,protoChips,massDelProto,massDelLine};globalThis.__setPD=v=>{proxyData=v;};globalThis.__setGW=v=>{lastGW=v;};',
       ctx, { filename: 'panel.js' });
   } catch (e) { ok(false, 'evaluar script del panel en vm', String(e)); return; }
   const F = sandbox.__F, setPD = sandbox.__setPD;
@@ -108,6 +108,14 @@ function phaseA() {
   // stickyLink
   ok(F.stickyLink('S1', 'http://gw:8080') === 'http://S1:clave@gw:8080', 'stickyLink: con gwBase', F.stickyLink('S1', 'http://gw:8080'));
   ok(F.stickyLink('S1') === 'http://S1:clave@127.0.0.1:' + API_PORT, 'stickyLink: usa location.origin', F.stickyLink('S1'));
+
+  // obLine (linea estilo DataImpulse host:puerto[:sesion:clave] para OB/SB)
+  ok(F.obLine('') === '127.0.0.1:' + API_PORT, 'obLine: sin sesion usa origin', F.obLine(''));
+  ok(F.obLine('S1') === '127.0.0.1:' + API_PORT + ':S1:clave', 'obLine: con sesion anade user:pass', F.obLine('S1'));
+  sandbox.__setGW('http://gw:8080');
+  ok(F.obLine('') === 'gw:8080', 'obLine: gateway conocido sin sesion', F.obLine(''));
+  ok(F.obLine('S1') === 'gw:8080:S1:clave', 'obLine: gateway conocido con sesion', F.obLine('S1'));
+  sandbox.__setGW('');
 
   // parseProxyLine
   const P = F.parseProxyLine;
@@ -304,6 +312,8 @@ async function phaseB() {
     ok(await page.locator('#linkbox').isVisible(), 'B5 linkbox visible al generar');
     ok((await txtOf('#linktext')).includes('sesion_ui_1:clave@'), 'B5 enlace con sesion', await txtOf('#linktext'));
     ok((await txtOf('#linkapi')).includes('/get?session=sesion_ui_1'), 'B5 ruta JSON en panel', await txtOf('#linkapi'));
+    ok((await txtOf('#linkob')).includes('OB / SilverBullet') && (await txtOf('#linkob')).includes(':sesion_ui_1:clave'),
+      'B5 linea OB en el linkbox', await txtOf('#linkob'));
     ok(await poll(() => txtOf('#linkapi').then(t => t.includes('fijo en')), 5000), 'B5 /get fija la sesion (sticky_on)', await txtOf('#linkapi'));
     ok((await txtOf('#linktext')).includes('sesion_ui_1:clave@127.0.0.1'), 'B5 proxy de la sesion resuelto', await txtOf('#linktext'));
     ok(await poll(() => txtOf('#cSess').then(t => parseInt(t, 10) >= 1), 5000), 'B5 contador de sesiones sticky >= 1', await txtOf('#cSess'));
@@ -318,6 +328,15 @@ async function phaseB() {
     } catch (e) { ok(true, 'B6 clipboard no legible en headless (toast ya verificado)'); }
     await T('#linkbox button:has-text("Cerrar")').click();
     ok(await page.locator('#linkbox').isHidden(), 'B6 linkbox cerrado');
+
+    /* ---- B6b: boton "Linea para OB" (host:puerto:sesion:clave) ---- */
+    await T('button:has-text("Línea para OB")').click();
+    ok(await expectToast('Línea OB copiada'), 'B6b toast "Linea OB copiada"');
+    try {
+      const clipOB = await page.evaluate(() => navigator.clipboard.readText());
+      ok(/^127\.0\.0\.1:\d+:sesion_ui_1:clave$/.test(clipOB),
+        'B6b clipboard == linea OB host:puerto:user:pass', clipOB);
+    } catch (e) { ok(true, 'B6b clipboard no legible en headless (toast ya verificado)'); }
 
     // sesion larga > 64 (negativo, no debe romper)
     await T('#sess').fill('L'.repeat(70));

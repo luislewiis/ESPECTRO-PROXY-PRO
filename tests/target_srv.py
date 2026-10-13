@@ -1,8 +1,16 @@
 import sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
+
 
 class H(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+
+    def _ruta(self):
+        # Acepta forma absoluta (GET http://host:port/ruta): es lo que manda
+        # un proxy bien configurado en la linea de peticion (RFC 7230 5.3.2)
+        # y los servidores reales la aceptan. http.server no lo hace solo.
+        return urlsplit(self.path).path or "/"
 
     def _ok(self, body, ctype="text/plain"):
         data = body.encode()
@@ -13,7 +21,7 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        if self.path == "/big":
+        if self._ruta() == "/big":
             self._ok("X" * 50000)
         else:
             self._ok("PROXY-GATEWAY-OK")
@@ -27,4 +35,4 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()

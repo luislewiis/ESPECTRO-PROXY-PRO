@@ -12,10 +12,13 @@ import (
 	"time"
 )
 
-// upstreamError marca fallos atribuibles al PROXY (dial, protocolo, auth).
-// Los errores sin envolver significan "el proxy respondio, fallo del destino"
-// y NO deben contar para marcar muerto al proxy (ARQ-01): una web caida no
-// apaga el pool. La autoridad de muerte sigue siendo el health-check.
+// upstreamError marca fallos atribuibles al PROXY (dial, protocolo, auth,
+// y respuestas que demuestran que el proxy NO sirve trafico: CONNECT http
+// con status != 200 y socks5 REP 01/02/07/08 o socks4 5C/5D). Los errores
+// sin envutar significan "el proxy respondio, fallo del destino" y NO
+// deben contar para marcar muerto al proxy (ARQ-01): una web caida no
+// apaga el pool. Autoridades de muerte: el health-check y esta via de
+// relay (ver evidencia A/B del 12/10/2026 en upstream_test.go).
 type upstreamError struct{ err error }
 
 func (e *upstreamError) Error() string { return "upstream: " + e.err.Error() }
@@ -118,8 +121,13 @@ func httpConnect(p *Proxy, target string, timeout time.Duration) (net.Conn, *buf
 			// respuesta sin codigo parseable: protocolo roto
 			return nil, nil, &upstreamError{fmt.Errorf("upstream CONNECT respondio status invalido: %q", status)}
 		}
-		// 502/504/etc: el proxy esta vivo y respondio; fallo del destino
-		return nil, nil, fmt.Errorf("upstream CONNECT devolvio %d", code)
+		// 502/503/504...: el proxy acepto la conexion pero NO pudo tunelizar.
+		// Se cuenta como fallo DEL PROXY (no del destino): en pools de
+		// proxies publicos hay muchos que superan el health-check (que solo
+		// exige una respuesta HTTP cualquiera) y luego no tunelizan nada; si
+		// no se marcaran, la rotacion los reelegiria sin fin y cada bot
+		// pagaria el timeout completo -> la corrida "se pausa".
+		return nil, nil, &upstreamError{fmt.Errorf("upstream CONNECT devolvio %d", code)}
 	}
 	c.SetDeadline(time.Time{})
 	return c, br, nil
@@ -199,8 +207,19 @@ func socks5Connect(c net.Conn, p *Proxy, target string) error {
 		return &upstreamError{err}
 	}
 	if hdr[1] != 0x00 {
-		// el proxy respondio: el destino rechazo/no responde -> sin markFail
-		return fmt.Errorf("socks5: connect fallo rep=%d", hdr[1])
+		rep := hdr[1]
+		// REP = culpa del PROXY (RFC 1928): 01 fallo general, 02 no
+		// permitido por ruleset, 07 comando no soportado (junk que no
+		// tuneliza), 08 tipo de direccion no soportado. Un proxy SOCKS
+		// que siempre devuelve estos nunca marcaba fallo (mismo bug que
+		// el 502 del CONNECT http, rama SOCKS) y la rotacion lo
+		// reelegia sin fin -> la corrida "se pausa". Los REP 03-06
+		// (red/destino inalcanzable, rechazado, TTL) son fallo del
+		// destino y NO matan al pool (ARQ-01).
+		if rep == 0x01 || rep == 0x02 || rep == 0x07 || rep == 0x08 {
+			return &upstreamError{fmt.Errorf("socks5: connect rechazado por el proxy rep=%d", rep)}
+		}
+		return fmt.Errorf("socks5: connect fallo rep=%d", rep)
 	}
 	switch hdr[3] {
 	case 0x01:
@@ -263,8 +282,16 @@ func socks4Connect(c net.Conn, p *Proxy, target string) error {
 		return &upstreamError{err}
 	}
 	if resp[1] != 0x5A {
-		// el proxy respondio con rechazo -> fallo del destino, no del proxy
-		return fmt.Errorf("socks4: rep=%d", resp[1])
+		rep := resp[1]
+		// 5C/5D: el PROXY no pudo verificar al cliente (identd) — es un
+		// fallo operativo del proxy respecto a NUESTRO trafico, no del
+		// destino: sin markFail el proxy jamas moria en la rotacion.
+		// 5B ("rejected or failed" generico) queda como fallo del
+		// destino (ARQ-01, conservador).
+		if rep == 0x5C || rep == 0x5D {
+			return &upstreamError{fmt.Errorf("socks4: rechazado por identd rep=%d", rep)}
+		}
+		return fmt.Errorf("socks4: rep=%d", rep)
 	}
 	return nil
 }

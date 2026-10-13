@@ -35,6 +35,7 @@ compartida la consola no se toca y `--console` la mantiene visible.
 | `--check-timeout` | `5000` | Timeout en ms por intento de health-check |
 | `--check-retries` | `1` | Reintentos extra por proxy antes de darlo por muerto (0 = sin reintentos) |
 | `--check-all` | `false` | El auto-check revisa también los muertos verificados (por defecto solo vivos + sin verificar) |
+| `--no-cooldown` | `false` | Desactiva el enfriamiento de proxies fallados en la rotación (diagnóstico/A-B: cada proxy que falla se aparta 45s) |
 | `--no-state` | `false` | No persistir el estado de analisis (no crea `<lista>.state.json`) |
 | `--state-file` | *(auto)* | Ruta del archivo de estado (default: `<lista>.state.json` junto a la primera lista) |
 | `--test-url` | `http://api.ipify.org/` | URL de validación |
@@ -139,21 +140,31 @@ El nombre del archivo infiere el esquema (`socks5_x.txt` → socks5).
 ## Tests
 
 ```powershell
-gofmt -l . ; go vet . ; go test -count=1 . ./internal/... ; go test -race -count=1 . ./internal/...   # 88+9 tests, coverage 60.1% (lic 71.4%)
+gofmt -l . ; go vet . ; go test -count=1 . ./internal/... ; go test -race -count=1 . ./internal/...   # 104+9 tests, coverage 61.0% (lic 71.4%)
 go test -run "^$" -bench . -benchmem
 go test -fuzz=FuzzReadHead -fuzztime=15s . ; go test -fuzz=FuzzUnseal -fuzztime=15s ./internal/lic   # fuzz (4 targets)
 python tests\run_tests.py        # suite funcional (19)
 python tests\test_sticky_api.py  # sesiones/API (25)
-python tests\run_deep_tests.py   # suite profunda (105: S1-S14)
-node tests\test_panel_ui.mjs     # suite UI boton a boton (266: vm + Chrome headless)
+python tests\run_deep_tests.py   # suite profunda (112: S1-S14)
+node tests\test_panel_ui.mjs     # suite UI boton a boton (273: vm + Chrome headless)
 ```
 
 ## Decisiones de diseño
 
 - **Cola híbrida / API**: la API no comparte lock con el relay de peticiones;
   índices `byKey`/`aliveIdx` dan `pick` y `counts` en O(1).
-- **ARQ-01**: solo los fallos de transporte contra el proxy (`upstreamError`)
-  cuentan para `markFail`; respuestas del proxy ante destino caído no matan el pool.
+- **ARQ-01**: solo los fallos atribuibles al PROXY cuentan para `markFail`:
+  transporte/dial contra el proxy, autenticación, `CONNECT` HTTP con status
+  != 200 (un 502/503/504 significa que el proxy **no tuneliza**) y SOCKS con
+  REP de culpa del proxy (socks5 `01/02/07/08`, socks4 `5C/5D`). Los rechazos
+  de destino (socks5 `03-06`, socks4 `5B`, respuestas ante web caída) no
+  matan el pool. Evidencia: A/B bajo carga 12/10/2026 (los proxies con 502
+  eterno no morían jamás y la rotación los reelegía sin fin → p90 6,3s →
+  3,6s tras el cambio).
+- **Enfriamiento (12/10/2026)**: `markFail` aparta al proxy de la rotación
+  45s (`enfriamientoS`) para no pagar su timeout en cada petición;
+  `markOK` lo readmite ya; pools < 8 vivos no se enfrían (se prueban
+  todos); purga al superar 512 entradas; `--no-cooldown` lo desactiva.
 - **RED-01**: `--idle-timeout` refresca deadlines en cada Read/Write de túnel.
 - **Sesiones**: mapa `session → clave Key()` con TTL 10 min y cap 10k;
   sobreviven a `/reload`; se limpian al marcar el proxy muerto.
@@ -291,6 +302,21 @@ node tests\test_panel_ui.mjs     # suite UI boton a boton (266: vm + Chrome head
   (`LICENSE` GPLv3, `SECURITY.md`, `.gitignore`, CI) y `.snyk` con los
   FPs ampliados. Tests: **88+9**, coverage 60.1% (lic 71.4%); batería
   completa en verde sobre el binario ofuscado (19 + 105 + 25 + 266).
+- **Optimización de rendimiento + fix de "pausas" de OB (12/10/2026)**:
+  cache de `http.Transport` por upstream (keep-alive reutilizado, TTL 90s
+  + sweeper; relay ~200µs/op en micro-benchmark), buffers de 64 KB con
+  `sync.Pool` en los túneles, `dialUpTimeout` 4s (antes 10s, los muertos
+  se descartan 2.5× más rápido) y `ResponseHeaderTimeout` 10s. Fix raíz
+  de las pausas (A/B bajo carga con dos gateways, misma lista): un
+  `CONNECT` que devuelve 502/503/504 (proxy que pasa el health-check —
+  cualquier respuesta HTTP vale— pero no tuneliza) ahora cuenta como
+  fallo del proxy y activa el **enfriamiento** de 45 s; antes no contaba,
+  la rotación lo reelegía sin fin y cada bot pagaba 4 reintentos × 4 s.
+  Medición: p90 6,3 s → 3,6 s (−43%). Asimetría SOCKS corregida en la
+  misma pass: REP socks5 `01/02/07/08` y socks4 `5C/5D` también cuentan
+  como fallo del proxy. `/checker/countries` ahora exige token. Tests:
+  `transport_test.go`, `enfriar_test.go`, `TestCONNECT502MarcaUpstream`,
+  `TestSocks5REP*` y `TestSocks4RepIdentd*`.
 
 ## Estructura
 
@@ -310,6 +336,6 @@ internal/lic/  formato de licencia (Ed25519 + AES-GCM por máquina)
 lictool/       emisión de licencias (clave privada; uso del vendedor)
 panel.html     panel (embed)
 legacy/        prototipo Python original (referencia)
-tests/         suites Python (19 + 25 + 105) + test_panel_ui.mjs (266, Node)
+tests/         suites Python (19 + 25 + 112) + test_panel_ui.mjs (273, Node)
 build_release.ps1  build de release (garble si está instalado)
 ```

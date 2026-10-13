@@ -32,6 +32,16 @@ var (
 	sessionTTL  = 10 * time.Minute
 )
 
+// Enfriamiento de proxies fallados (ver App.enfriar y pick): un proxy que
+// falla en relay se aparta de la rotacion este tiempo (segundos). Equilibra
+// dos cosas: no pagar su timeout en cada peticion (congela los bots) y
+// volver a probarlo pronto (los proxies publicos se recuperan).
+const (
+	enfriamientoS   = 45
+	minPoolEnfriar  = 8   // pools mas pequenos: no se enfria (probar todos)
+	enfriarPurgaMax = 512 // purga de caducados solo al pasar este tamano
+)
+
 type App struct {
 	mu       sync.Mutex
 	proxies  []*Proxy
@@ -57,6 +67,15 @@ type App struct {
 	authLim      *authLimiter  // rate-limit de fallos de token por IP (fuerza bruta)
 	allowAnyPath bool          // escape de la jaula de rutas de /validate y /import
 	idle         time.Duration // watchdog de inactividad en tuneles (RED-01, 0=off)
+
+	// enfriar: proxies que acaban de fallar en relay (key -> unix sec hasta
+	// el que se apartan de la rotacion). Sin esto, un proxy "vivo" segun el
+	// health-check pero muerto en la practica se reelige cada pocas
+	// peticiones y cada una paga el timeout completo (4s x hasta 4
+	// reintentos = 16s congelados por bot; la corrida entera se "pausa").
+	enfriar    map[string]int64 // key -> unix sec hasta el que se aparta de la rotacion
+	sinEnfriar bool             // --no-cooldown: desactiva el enfriamiento (A/B y diagnostico)
+	idxEnfriar int              // purgas pendientes (solo cuando el mapa crece)
 
 	checkBatch int // proxies chequeados por ciclo (0 = todos)
 
@@ -88,6 +107,11 @@ type App struct {
 
 	logMu sync.Mutex
 	logs  []string
+
+	// Cache de http.Transport por upstream (Proxy.Key() -> *transporteEntry):
+	// reutiliza conexiones keep-alive al mismo proxy en vez de crear un
+	// Transport por peticion (ver transport.go).
+	tp sync.Map
 }
 
 func ExpandGlobs(args []string) []string {
@@ -107,6 +131,7 @@ func ExpandGlobs(args []string) []string {
 func NewApp(files []string, strategy string, quiet bool, checkItv int, testURL string) *App {
 	return &App{
 		sessions:     make(map[string]sessionInfo),
+		enfriar:      make(map[string]int64),
 		rr:           -1,
 		strategy:     strategy,
 		files:        files,
@@ -232,6 +257,16 @@ func (a *App) AliveList() []*Proxy {
 // refreshIdxLocked reconstruye byKey/aliveIdx si el slice fue sustituido o si
 // hubo transiciones Alive. Llamar con a.mu tomado.
 func (a *App) refreshIdxLocked() {
+	// Purga de enfriados caducados: solo cuando el mapa crece (pick se
+	// ejecuta por request; la purga no puede costar en el camino caliente).
+	if len(a.enfriar) > enfriarPurgaMax {
+		now := time.Now().Unix()
+		for k, t := range a.enfriar {
+			if t <= now {
+				delete(a.enfriar, k)
+			}
+		}
+	}
 	replaced := a.idxLen != len(a.proxies) ||
 		(len(a.proxies) > 0 && a.idxFirst != a.proxies[0]) ||
 		(len(a.proxies) == 0 && a.idxFirst != nil) ||
@@ -293,6 +328,32 @@ func (a *App) pick(session string, exclude map[*Proxy]bool) *Proxy {
 	}
 	if len(base) == 0 {
 		return nil
+	}
+
+	// Enfriamiento: con un pool grande, los proxies que acaban de fallar se
+	// apartan de la rotacion un rato (ver App.enfriar). Con pools pequenos
+	// (< minPoolEnfriar) no se enfria: si solo hay 3 proxies hay que
+	// probarlos todos o la corrida se quedaria sin salida (y los tests con
+	// listas de 2 proxies siguen viendo los fallos esperados).
+	if !a.sinEnfriar && len(base) >= minPoolEnfriar && len(a.enfriar) > 0 {
+		now := time.Now().Unix()
+		n := 0
+		for _, p := range base {
+			if t, ok := a.enfriar[p.Key()]; ok && t > now {
+				continue
+			}
+			n++
+		}
+		if n > 0 && n < len(base) {
+			free := make([]*Proxy, 0, n)
+			for _, p := range base {
+				if t, ok := a.enfriar[p.Key()]; ok && t > now {
+					continue
+				}
+				free = append(free, p)
+			}
+			base = free
+		}
 	}
 
 	// Sesion: hit O(1) via indice byKey (la clave Key() sobrevive a reload).
@@ -369,6 +430,10 @@ func (a *App) markFail(p *Proxy) {
 	a.mu.Lock()
 	p.Fails++
 	p.Checked = true // el trafico por este proxy lo verifico (aun si muere)
+	// Enfriamiento: apartar de la rotacion un rato (ver pick). El proxy
+	// sigue vivo para el health-check; solo evita que cada bot vuelva a
+	// pagar su timeout hasta que caduque.
+	a.enfriar[p.Key()] = time.Now().Unix() + enfriamientoS
 	died := false
 	if p.Fails >= 3 && p.Alive {
 		p.Alive = false
@@ -394,6 +459,7 @@ func (a *App) markOK(p *Proxy) {
 	a.mu.Lock()
 	p.Fails = 0
 	p.Checked = true // trafico correcto = verificado
+	delete(a.enfriar, p.Key())
 	a.mu.Unlock()
 	a.scheduleStateSave()
 }

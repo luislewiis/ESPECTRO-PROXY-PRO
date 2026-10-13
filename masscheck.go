@@ -1206,6 +1206,12 @@ func (a *App) registerChecker(mux *http.ServeMux) {
 	})
 
 	mux.HandleFunc("/checker/countries", func(w http.ResponseWriter, r *http.Request) {
+		// Lectura sensible minima (conteos por pais): misma proteccion
+		// que el resto de /checker/* con --api-token (antes era el unico
+		// endpoint sin leerOK — exposicion inconsistente).
+		if !a.leerOK(w, r) {
+			return
+		}
 		jsonOut(w, map[string]interface{}{"countries": a.massCountries()})
 	})
 

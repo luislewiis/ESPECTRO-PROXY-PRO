@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,12 +12,21 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
 	maxHeadBytes = 64 * 1024
 	bodyCap      = 20 * 1024 * 1024
+
+	// dialUpTimeout: timeout para conectar+negociar contra un upstream.
+	// Bajando de 10s a 4s: en pools de proxies publicos abundan los que
+	// aceptan SYN y nunca responden (i/o timeout). Con 10s, 4 reintentos
+	// podian congelar un bot de checker 40s (la corrida "se pausaba");
+	// con 4s un upstream sano (handshake < 1-2s) no se ve afectado y los
+	// muertos se descartan 2.5x mas rapido.
+	dialUpTimeout = 4 * time.Second
 )
 
 type countingWriter struct {
@@ -327,7 +335,7 @@ func (a *App) handleConnect(client net.Conn, target string, h map[string]string)
 		if p == nil {
 			break
 		}
-		up, upBr, err := dialThrough(p, target, 10*time.Second)
+		up, upBr, err := dialThrough(p, target, dialUpTimeout)
 		if err != nil {
 			lastErr = err
 			exclude[p] = true
@@ -398,6 +406,12 @@ func (a *App) respondeAuto(client net.Conn, method string, puerto string) {
 	a.logf("auto-check: respondido 200 a %s (checker de proxy en el puerto %s)", method, puerto)
 }
 
+// tunnelBufPool: buffers de 64 KB para los tuneles CONNECT. io.Copy usa
+// 32 KB por defecto; con 64 KB se reducen los syscalls a la mitad en
+// transferencias largas (descargas por el proxy), sin mantener memoria
+// residente (el buffer se devuelve al pool al terminar la copia).
+var tunnelBufPool = sync.Pool{New: func() any { b := make([]byte, 64<<10); return &b }}
+
 func (a *App) tunnel(client, up net.Conn, upBr *bufio.Reader) {
 	defer client.Close()
 	defer up.Close()
@@ -415,11 +429,15 @@ func (a *App) tunnel(client, up net.Conn, upBr *bufio.Reader) {
 	}
 	done := make(chan struct{}, 2)
 	go func() {
-		io.Copy(&countingWriter{w: updst, up: true, st: &a.stats}, csrc)
+		bp := tunnelBufPool.Get().(*[]byte)
+		io.CopyBuffer(&countingWriter{w: updst, up: true, st: &a.stats}, csrc, *bp)
+		tunnelBufPool.Put(bp)
 		done <- struct{}{}
 	}()
 	go func() {
-		io.Copy(&countingWriter{w: cdst, st: &a.stats}, upsrc)
+		bp := tunnelBufPool.Get().(*[]byte)
+		io.CopyBuffer(&countingWriter{w: cdst, st: &a.stats}, upsrc, *bp)
+		tunnelBufPool.Put(bp)
 		done <- struct{}{}
 	}()
 	<-done
@@ -543,49 +561,10 @@ func (a *App) roundTrip(p *Proxy, method string, u *url.URL, h map[string]string
 		req.ContentLength = int64(len(body))
 	}
 
-	tr := &http.Transport{
-		DisableKeepAlives:     true,
-		DisableCompression:    true,
-		ResponseHeaderTimeout: 30 * time.Second,
-		ForceAttemptHTTP2:     false,
-	}
-	if p.Scheme == "http" {
-		pu := &url.URL{Scheme: "http", Host: p.Addr()}
-		if p.User != "" {
-			pu.User = url.UserPassword(p.User, p.Password)
-		}
-		tr.Proxy = http.ProxyURL(pu)
-		// marcar el dial al PROXY como upstream; los errores post-CONNECT
-		// (timeout del destino) quedan sin envolver -> sin markFail
-		tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			timeout := 10 * time.Second
-			if dl, ok := ctx.Deadline(); ok {
-				timeout = time.Until(dl)
-			}
-			c, err := dialRaw(addr, timeout)
-			if err != nil {
-				return nil, &upstreamError{err}
-			}
-			return c, nil
-		}
-	} else {
-		tr.Proxy = nil
-		tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			timeout := 10 * time.Second
-			if dl, ok := ctx.Deadline(); ok {
-				timeout = time.Until(dl)
-			}
-			// bufConn: entrega primero los bytes ya bufferizados por el
-			// handshake (respuestas tempranas del destino), que si no se
-			// descartarian junto al bufio de dialThrough.
-			c, br, err := dialThrough(p, addr, timeout)
-			if err != nil {
-				return nil, err
-			}
-			return &bufConn{Conn: c, r: br}, nil
-		}
-	}
-	defer tr.CloseIdleConnections()
+	// Transport cacheado por proxy (transport.go): reutiliza la conexion al
+	// mismo upstream; el anterior creaba uno nuevo por peticion con
+	// DisableKeepAlives=true -> conexion TCP nueva en cada request.
+	tr := a.transportePara(p)
 	return tr.RoundTrip(req)
 }
 

@@ -440,6 +440,8 @@ td.ping{color:var(--faint);white-space:nowrap}
         <input type="text" id="sess" placeholder="MI_SESION" size="13">
       </label>
       <button class="primary" onclick="genLink()">Generar enlace</button>
+      <button class="primary" onclick="copyOBLine()"
+        title="Copia host:puerto:sesion:clave, listo para pegar en OB M2 / SilverBullet (tipo HTTP)">📋 Línea para OB</button>
     </div>
   </div>
 
@@ -447,6 +449,7 @@ td.ping{color:var(--faint);white-space:nowrap}
     <div class="title">Endpoint sticky — úsalo en OB M2 / tus tools</div>
     <div class="url" id="linktext"></div>
     <div class="api" id="linkapi"></div>
+    <div class="api" id="linkob"></div>
     <div class="row">
       <button onclick="copyLink()">Copiar enlace</button>
       <button onclick="document.getElementById('linkbox').style.display='none'">Cerrar</button>
@@ -872,9 +875,32 @@ function stickyLink(session, gwBase){
   const host = (gwBase || location.origin).replace(/^https?:\/\//, '');
   return 'http://' + session + ':clave@' + host;
 }
+// Linea estilo DataImpulse (host:puerto:usuario:clave) lista para pegar
+// directo en OB M2 o SilverBullet: el gateway acepta ese formato tal cual
+// (con sesion = IP fija; sin sesion = rota en cada peticion).
+function obLine(session){
+  const gw = (lastGW || location.origin).replace(/^https?:\/\//, '');
+  const s = (session || '').trim();
+  return s ? gw + ':' + s + ':clave' : gw;
+}
+async function copyOBLine(){
+  // lastGW lo rellena refresh() con /stats; si aun no llego, pedimos un
+  // refresco y avisamos (evita ademas fetch redundantes en este handler).
+  if (!lastGW){
+    refresh();
+    toast('cargando endpoint… prueba otra vez', true);
+    return;
+  }
+  const line = obLine(document.getElementById('sess').value);
+  navigator.clipboard.writeText(line).then(
+    () => toast('Línea OB copiada: ' + line),
+    () => toast('No se pudo copiar', true));
+}
 function genLink(){
   const s = document.getElementById('sess').value.trim() || 'MI_SESION';
   document.getElementById('linktext').textContent = stickyLink(s, lastGW);
+  document.getElementById('linkob').textContent =
+    'OB / SilverBullet (tipo HTTP): ' + obLine(s);
   document.getElementById('linkapi').textContent =
     'JSON: ' + location.origin + '/get?session=' + encodeURIComponent(s);
   document.getElementById('linkbox').style.display = 'block';
