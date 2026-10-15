@@ -77,6 +77,14 @@ func (c *idleConn) Write(p []byte) (int, error) {
 	return c.Conn.Write(p)
 }
 
+// CloseWrite propaga el cierre de escritura a la conexion TCP subyacente
+func (c *idleConn) CloseWrite() error {
+	if cw, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return nil
+}
+
 // idleReader aplica el mismo watchdog sobre un bufio.Reader existente
 // (respeta bytes ya bufferizados tras el handshake).
 type idleReader struct {
@@ -248,6 +256,29 @@ var hopHeaders = map[string]bool{
 	"content-length": true, "expect": true,
 }
 
+// stripHeaders contiene cabeceras que delatan proxies a Cloudflare, Akamai,
+// Datadome y otros sistemas anti-bot (P1.3 Stealth).
+var stripHeaders = map[string]bool{
+	"via":                true,
+	"x-forwarded-for":    true,
+	"x-real-ip":          true,
+	"forwarded":          true,
+	"x-proxy-id":         true,
+	"x-forwarded-host":   true,
+	"x-forwarded-proto":  true,
+	"x-forwarded-server": true,
+	"client-ip":          true,
+	"true-client-ip":     true,
+}
+
+func isStrippedHeader(k string) bool {
+	lk := strings.ToLower(k)
+	if hopHeaders[lk] || stripHeaders[lk] || strings.HasPrefix(lk, "x-gateway-") {
+		return true
+	}
+	return false
+}
+
 func (a *App) ServeGateway(ln net.Listener) {
 	for {
 		c, err := ln.Accept()
@@ -302,13 +333,19 @@ func (a *App) handleConn(client net.Conn) {
 	a.stats.Requests.Add(1)
 
 	if method == "CONNECT" {
-		a.handleConnect(client, target, h)
+		a.handleConnect(client, br, target, h)
 		return
 	}
 	a.handlePlain(client, br, method, target, h)
 }
 
-func (a *App) handleConnect(client net.Conn, target string, h map[string]string) {
+func (a *App) handleConnect(client net.Conn, clientBr *bufio.Reader, target string, h map[string]string) {
+	target = strings.TrimSpace(target)
+	if strings.Contains(target, "://") {
+		if u, err := url.Parse(target); err == nil && u.Host != "" {
+			target = u.Host
+		}
+	}
 	if !strings.Contains(target, ":") {
 		target += ":443"
 	}
@@ -327,11 +364,20 @@ func (a *App) handleConnect(client net.Conn, target string, h map[string]string)
 		a.logf("CONNECT al propio gateway (%s) rechazado", target)
 		return
 	}
-	session := SessionFromHeaders(h)
+	session, country, rotate := parseUserParams(SessionFromHeaders(h))
+	if h["x-proxy-rotate"] == "1" || rotate {
+		if session != "" {
+			a.deleteSession(session)
+		}
+		if rotate {
+			session = ""
+		}
+	}
+	delete(h, "x-proxy-rotate")
 	exclude := make(map[*Proxy]bool)
 	var lastErr error
 	for i := 0; i < 4; i++ {
-		p := a.pick(session, exclude)
+		p := a.pickWithCountry(session, country, exclude)
 		if p == nil {
 			break
 		}
@@ -355,7 +401,7 @@ func (a *App) handleConnect(client net.Conn, target string, h map[string]string)
 		if !a.quiet {
 			a.logf("CONNECT %s via %s", target, p.Tag())
 		}
-		a.tunnel(client, up, upBr)
+		a.tunnel(client, clientBr, up, upBr)
 		return
 	}
 	a.stats.Errors.Add(1)
@@ -412,35 +458,67 @@ func (a *App) respondeAuto(client net.Conn, method string, puerto string) {
 // residente (el buffer se devuelve al pool al terminar la copia).
 var tunnelBufPool = sync.Pool{New: func() any { b := make([]byte, 64<<10); return &b }}
 
-func (a *App) tunnel(client, up net.Conn, upBr *bufio.Reader) {
+func (a *App) tunnel(client net.Conn, clientBr *bufio.Reader, up net.Conn, upBr *bufio.Reader) {
 	defer client.Close()
 	defer up.Close()
 	// watchdog de inactividad (RED-01): cierra tuneles muertos sin matar
 	// flujos activos (el deadline se refresca en cada Read/Write)
 	var csrc io.Reader = client
+	if clientBr != nil {
+		csrc = clientBr
+	}
 	var cdst io.Writer = client
-	var upsrc io.Reader = upBr
+	var upsrc io.Reader = up
+	if upBr != nil {
+		upsrc = upBr
+	}
 	var updst io.Writer = up
 	if a.idle > 0 {
-		csrc = &idleConn{Conn: client, d: a.idle}
+		if clientBr != nil {
+			csrc = &idleReader{br: clientBr, c: client, d: a.idle}
+		} else {
+			csrc = &idleConn{Conn: client, d: a.idle}
+		}
 		cdst = &idleConn{Conn: client, d: a.idle}
-		upsrc = &idleReader{br: upBr, c: up, d: a.idle}
+		if upBr != nil {
+			upsrc = &idleReader{br: upBr, c: up, d: a.idle}
+		} else {
+			upsrc = &idleConn{Conn: up, d: a.idle}
+		}
 		updst = &idleConn{Conn: up, d: a.idle}
 	}
-	done := make(chan struct{}, 2)
+	done1 := make(chan error, 1)
+	done2 := make(chan error, 1)
 	go func() {
 		bp := tunnelBufPool.Get().(*[]byte)
-		io.CopyBuffer(&countingWriter{w: updst, up: true, st: &a.stats}, csrc, *bp)
+		_, err := io.CopyBuffer(&countingWriter{w: updst, up: true, st: &a.stats}, csrc, *bp)
 		tunnelBufPool.Put(bp)
-		done <- struct{}{}
+		if cw, ok := up.(interface{ CloseWrite() error }); ok {
+			cw.CloseWrite()
+		}
+		done1 <- err
 	}()
 	go func() {
 		bp := tunnelBufPool.Get().(*[]byte)
-		io.CopyBuffer(&countingWriter{w: cdst, st: &a.stats}, upsrc, *bp)
+		_, err := io.CopyBuffer(&countingWriter{w: cdst, st: &a.stats}, upsrc, *bp)
 		tunnelBufPool.Put(bp)
-		done <- struct{}{}
+		if cw, ok := client.(interface{ CloseWrite() error }); ok {
+			cw.CloseWrite()
+		}
+		done2 <- err
 	}()
-	<-done
+
+	select {
+	case <-done2:
+		// El upstream terminó de enviar la respuesta (o falló): salimos y cerramos
+	case err := <-done1:
+		// Si el cliente tuvo error de red anormal (no EOF), cerramos de inmediato.
+		// Si fue EOF limpio (half-close), dejamos que el upstream termine de responder en done2.
+		if err != nil {
+			return
+		}
+		<-done2
+	}
 }
 
 func (a *App) handlePlain(client net.Conn, br *bufio.Reader, method, target string, h map[string]string) {
@@ -484,11 +562,21 @@ func (a *App) handlePlain(client net.Conn, br *bufio.Reader, method, target stri
 		return
 	}
 
-	session := SessionFromHeaders(h)
+	session, country, rotate := parseUserParams(SessionFromHeaders(h))
+	if h["x-proxy-rotate"] == "1" || rotate {
+		if session != "" {
+			a.deleteSession(session)
+		}
+		if rotate {
+			session = ""
+		}
+	}
+	delete(h, "x-proxy-rotate")
 	exclude := make(map[*Proxy]bool)
 	var lastErr error
-	for i := 0; i < 4; i++ {
-		p := a.pick(session, exclude)
+	maxRetries := 4
+	for i := 0; i <= maxRetries; i++ {
+		p := a.pickWithCountry(session, country, exclude)
 		if p == nil {
 			break
 		}
@@ -510,6 +598,14 @@ func (a *App) handlePlain(client net.Conn, br *bufio.Reader, method, target stri
 		}
 		resp.Header.Del("Proxy-Connection")
 		resp.Header.Del("Connection")
+		resp.Header.Del("Via")
+		resp.Header.Del("X-Forwarded-For")
+		resp.Header.Del("X-Real-IP")
+		for k := range resp.Header {
+			if strings.HasPrefix(strings.ToLower(k), "x-gateway-") {
+				resp.Header.Del(k)
+			}
+		}
 		resp.Close = true
 		if body != nil {
 			a.stats.BytesUp.Add(int64(len(body)))
@@ -549,7 +645,7 @@ func (a *App) roundTrip(p *Proxy, method string, u *url.URL, h map[string]string
 		return nil, err
 	}
 	for k, v := range h {
-		if hopHeaders[k] || k == "host" {
+		if isStrippedHeader(k) || strings.EqualFold(k, "host") {
 			continue
 		}
 		req.Header.Set(k, v)

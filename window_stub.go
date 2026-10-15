@@ -7,3 +7,4 @@ func mostrarConsola()           {}
 func cerrarConsolaPropia() bool { return false }
 
 func abrirVentana(string, bool) bool { return false }
+func tuneTCP() error                 { return nil }

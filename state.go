@@ -14,11 +14,12 @@ import (
 // siguen muertos, los vivos siguen vivos, y solo se auto-escanean los
 // vivos + los nunca verificados (los muertos se revisan solo a mano).
 type stateEntry struct {
-	Alive     bool  `json:"alive"`
-	Fails     int   `json:"fails"`
-	Checked   bool  `json:"checked"`
-	PingMs    int   `json:"ping_ms"`
-	LastCheck int64 `json:"last_check"` // unix seg, 0 = nunca
+	Alive     bool   `json:"alive"`
+	Fails     int    `json:"fails"`
+	Checked   bool   `json:"checked"`
+	PingMs    int    `json:"ping_ms"`
+	LastCheck int64  `json:"last_check"` // unix seg, 0 = nunca
+	Country   string `json:"country,omitempty"`
 }
 
 // statePathFor devuelve la ruta del archivo de estado ("" = desactivado).
@@ -76,7 +77,7 @@ func (a *App) saveState() {
 	for _, p := range a.proxies {
 		m[p.Key()] = stateEntry{
 			Alive: p.Alive, Fails: p.Fails, Checked: p.Checked,
-			PingMs: p.PingMs, LastCheck: p.LastCheck,
+			PingMs: p.PingMs, LastCheck: p.LastCheck, Country: p.Country,
 		}
 	}
 	a.mu.Unlock()

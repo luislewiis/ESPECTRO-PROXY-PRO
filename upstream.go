@@ -262,15 +262,18 @@ func socks4Connect(c net.Conn, p *Proxy, target string) error {
 		userid = userid[:255]
 	}
 
+	ip := net.ParseIP(host)
+	useSocks4a := ip == nil || ip.To4() == nil
+
 	req := []byte{0x04, 0x01, byte(port >> 8), byte(port & 0xFF)}
-	if ip := net.ParseIP(host); ip != nil && ip.To4() != nil {
-		req = append(req, ip.To4()...)
+	if useSocks4a {
+		req = append(req, 0x00, 0x00, 0x00, 0x01) // SOCKS4a (Zero DNS Leak: el proxy remoto resuelve el dominio)
 	} else {
-		req = append(req, 0x00, 0x00, 0x00, 0x01) // socks4a
+		req = append(req, ip.To4()...)
 	}
 	req = append(req, []byte(userid)...)
 	req = append(req, 0x00)
-	if net.ParseIP(host) == nil || net.ParseIP(host).To4() == nil {
+	if useSocks4a {
 		req = append(req, []byte(host)...)
 		req = append(req, 0x00)
 	}

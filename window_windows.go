@@ -3,9 +3,12 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -151,4 +154,23 @@ func dataPathWebview() string {
 	dp := filepath.Join(os.TempDir(), "gw_webview", strconv.Itoa(os.Getpid()))
 	os.MkdirAll(dp, 0o700)
 	return dp
+}
+
+// tuneTCP aplica el afinamiento del stack TCP de Windows recomendado para alta concurrencia
+// (300+ bots en OpenBullet/SilverBullet): amplía puertos dinámicos a 64k y reduce TIME_WAIT a 30s (P3.1).
+// Requiere elevación UAC: usa PowerShell Start-Process -Verb RunAs.
+func tuneTCP() error {
+	cmds := []string{
+		`netsh int ipv4 set dynamicport tcp start=1025 num=64510`,
+		`reg add "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v TcpTimedWaitDelay /t REG_DWORD /d 30 /f`,
+		`reg add "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v MaxUserPort /t REG_DWORD /d 65534 /f`,
+	}
+	for _, c := range cmds {
+		cmd := exec.Command("powershell", "-NoProfile", "-Command",
+			fmt.Sprintf("Start-Process -FilePath 'cmd' -ArgumentList '/c %s' -Verb RunAs -Wait", c))
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("fallo aplicando TCP tuning: %v (%s)", err, strings.TrimSpace(string(out)))
+		}
+	}
+	return nil
 }

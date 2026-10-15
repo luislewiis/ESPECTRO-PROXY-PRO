@@ -243,7 +243,7 @@ func main() {
 	apiPort := flag.Int("api-port", 8081, "puerto de la API y el panel")
 	autoPort := flag.Bool("auto-port", true, "si un puerto esta ocupado, usa el siguiente libre y avisa con notificacion flotante (--auto-port=false para salir con error)")
 	noNotify := flag.Bool("no-notify", false, "no mostrar la notificacion flotante al cambiar de puerto (tests/automatizacion)")
-	strategy := flag.String("strategy", "round-robin", "round-robin | random | sticky")
+	strategy := flag.String("strategy", "round-robin", "round-robin | random | sticky | fastest")
 	checkInterval := flag.Int("check-interval", 60, "segundos entre health-checks (0 = off)")
 	checkBatch := flag.Int("check-batch", 1000, "proxies chequeados por ciclo de health-check (0 = todos)")
 	testURL := flag.String("test-url", "http://api.ipify.org/", "URL usada para validar proxies")
@@ -263,6 +263,7 @@ func main() {
 	noState := flag.Bool("no-state", false, "no persistir el estado de analisis (no crea <lista>.state.json)")
 	stateFileFlag := flag.String("state-file", "", "ruta del archivo de estado persistente (default: <lista>.state.json)")
 	showVersion := flag.Bool("version", false, "imprime la version y la licencia y sale")
+	tuneTCPFlag := flag.Bool("tune-tcp", false, "afina el stack TCP de Windows para alta concurrencia (OpenBullet/SilverBullet) y sale")
 	flag.Parse()
 
 	if *showVersion {
@@ -271,6 +272,20 @@ func main() {
 			fmt.Printf("build: %s\n", buildDate)
 		}
 		fmt.Printf("licencia: %s\n", licDesc())
+		return
+	}
+
+	if *tuneTCPFlag {
+		fmt.Println("[gw] aplicando afinamiento del stack TCP de Windows...")
+		if err := tuneTCP(); err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: %v\n(Asegurate de ejecutar esta opcion como Administrador)\n", err)
+			pausaSiConsola()
+			os.Exit(1)
+		}
+		fmt.Println("[gw] TCP tuning aplicado exitosamente:")
+		fmt.Println("     - Puertos dinamicos: 1025-65535 (64510 puertos libres)")
+		fmt.Println("     - TcpTimedWaitDelay: 30s")
+		fmt.Println("     - MaxUserPort: 65534")
 		return
 	}
 
@@ -297,8 +312,8 @@ func main() {
 			usageYSal()
 		}
 	}
-	if *strategy != "round-robin" && *strategy != "random" && *strategy != "sticky" {
-		fmt.Fprintln(os.Stderr, "ERROR: --strategy debe ser round-robin, random o sticky")
+	if *strategy != "round-robin" && *strategy != "random" && *strategy != "sticky" && *strategy != "fastest" {
+		fmt.Fprintln(os.Stderr, "ERROR: --strategy debe ser round-robin, random, sticky o fastest")
 		pausaSiConsola()
 		os.Exit(2)
 	}

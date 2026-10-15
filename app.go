@@ -180,11 +180,12 @@ func (a *App) LoadProxies() int {
 		checked   bool
 		pingMs    int
 		lastCheck int64
+		country   string
 	}
 	old := make(map[string]pstate)
 	a.mu.Lock()
 	for _, p := range a.proxies {
-		old[p.Key()] = pstate{p.Alive, p.Fails, p.Checked, p.PingMs, p.LastCheck}
+		old[p.Key()] = pstate{p.Alive, p.Fails, p.Checked, p.PingMs, p.LastCheck, p.Country}
 	}
 	disk := a.diskState
 	files := append([]string(nil), a.files...)
@@ -220,6 +221,7 @@ func (a *App) LoadProxies() int {
 				p.Checked = st.checked
 				p.PingMs = st.pingMs
 				p.LastCheck = st.lastCheck
+				p.Country = st.country
 			} else if st, ok := disk[p.Key()]; ok {
 				// Sin estado en memoria (reload total / arranque): usar disco.
 				p.Alive = st.Alive
@@ -227,6 +229,7 @@ func (a *App) LoadProxies() int {
 				p.Checked = st.Checked
 				p.PingMs = st.PingMs
 				p.LastCheck = st.LastCheck
+				p.Country = st.Country
 			}
 			proxies = append(proxies, p)
 		}
@@ -303,6 +306,10 @@ func (a *App) counts() (alive, total int) {
 }
 
 func (a *App) pick(session string, exclude map[*Proxy]bool) *Proxy {
+	return a.pickWithCountry(session, "", exclude)
+}
+
+func (a *App) pickWithCountry(session, country string, exclude map[*Proxy]bool) *Proxy {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.refreshIdxLocked()
@@ -328,6 +335,20 @@ func (a *App) pick(session string, exclude map[*Proxy]bool) *Proxy {
 	}
 	if len(base) == 0 {
 		return nil
+	}
+
+	// Filtro de pais (P2.2): si viene especificado country y hay proxies que coincidan,
+	// restringir la seleccion a ese pais.
+	if country != "" {
+		var matched []*Proxy
+		for _, p := range base {
+			if strings.EqualFold(p.Country, country) {
+				matched = append(matched, p)
+			}
+		}
+		if len(matched) > 0 {
+			base = matched
+		}
 	}
 
 	// Enfriamiento: con un pool grande, los proxies que acaban de fallar se
@@ -367,20 +388,52 @@ func (a *App) pick(session string, exclude map[*Proxy]bool) *Proxy {
 		}
 	}
 
-	start := 0
-	if a.strategy == "random" {
-		start = rand.Intn(len(base))
-	} else {
-		a.rr = (a.rr + 1) % len(base)
-		start = a.rr
-	}
 	var chosen *Proxy
-	for i := 0; i < len(base); i++ {
-		idx := (start + i) % len(base)
-		if !exclude[base[idx]] {
-			chosen = base[idx]
-			a.rr = idx
-			break
+	if a.strategy == "fastest" {
+		candidates := make([]*Proxy, 0, len(base))
+		for _, p := range base {
+			if !exclude[p] {
+				candidates = append(candidates, p)
+			}
+		}
+		if len(candidates) == 0 {
+			return nil
+		}
+		if len(candidates) >= 8 {
+			sort.SliceStable(candidates, func(i, j int) bool {
+				pi, pj := candidates[i].PingMs, candidates[j].PingMs
+				if pi > 0 && pj > 0 {
+					return pi < pj
+				}
+				if pi > 0 {
+					return true
+				}
+				return false
+			})
+			topN := len(candidates) / 4
+			if topN < 2 {
+				topN = 2
+			}
+			chosen = candidates[rand.Intn(topN)]
+		} else {
+			a.rr = (a.rr + 1) % len(candidates)
+			chosen = candidates[a.rr]
+		}
+	} else {
+		start := 0
+		if a.strategy == "random" {
+			start = rand.Intn(len(base))
+		} else {
+			a.rr = (a.rr + 1) % len(base)
+			start = a.rr
+		}
+		for i := 0; i < len(base); i++ {
+			idx := (start + i) % len(base)
+			if !exclude[base[idx]] {
+				chosen = base[idx]
+				a.rr = idx
+				break
+			}
 		}
 	}
 	if chosen == nil {
@@ -480,6 +533,57 @@ func SessionFromHeaders(h map[string]string) string {
 		}
 	}
 	return ""
+}
+
+// deleteSession purga una sesion sticky existente (P2.3 X-Proxy-Rotate: 1).
+func (a *App) deleteSession(session string) {
+	if session == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.sessions, session)
+}
+
+// parseUserParams desglosa nombres de usuario estilo OpenBullet y proveedores comerciales:
+// user-session-12345, user-rotate, user-country-US, etc. (P2.2).
+func parseUserParams(rawUser string) (session string, country string, rotate bool) {
+	if rawUser == "" {
+		return "", "", false
+	}
+	parts := strings.Split(rawUser, "-")
+	base := parts[0]
+	hasSub := false
+	for i := 1; i < len(parts); i++ {
+		p := parts[i]
+		switch {
+		case strings.HasPrefix(p, "session"):
+			hasSub = true
+			session = strings.TrimPrefix(p, "session")
+			if session == "" && i+1 < len(parts) {
+				session = parts[i+1]
+				i++
+			}
+		case p == "rotate":
+			hasSub = true
+			rotate = true
+		case strings.HasPrefix(p, "country"):
+			hasSub = true
+			c := strings.TrimPrefix(p, "country")
+			if c == "" && i+1 < len(parts) {
+				c = parts[i+1]
+				i++
+			}
+			country = strings.ToUpper(c)
+		}
+	}
+	if !hasSub {
+		return rawUser, "", false
+	}
+	if session == "" && !rotate {
+		session = base
+	}
+	return session, country, rotate
 }
 
 // applyListChanges reescribe las listas en disco aplicando cambios por clave

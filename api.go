@@ -477,22 +477,37 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 			return
 		}
 		format := r.URL.Query().Get("format")
-		// scheme: filtra por protocolo (http|socks4|socks4a|socks5). La lista
-		// viva es mixta; sin el filtro, una fuente remota de OB con un unico
-		// Type daria por muertos todos los proxies de otro protocolo.
+		// scheme / proto: filtra por protocolo (http|socks4|socks4a|socks5).
 		scheme := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scheme")))
+		if scheme == "" {
+			scheme = strings.ToLower(strings.TrimSpace(r.URL.Query().Get("proto")))
+		}
+		aliveOnly := r.URL.Query().Get("alive") == "1"
+		maxPing := 0
+		if mp := r.URL.Query().Get("max_ping"); mp != "" {
+			maxPing, _ = strconv.Atoi(mp)
+		}
+		country := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("country")))
+
 		list := a.AliveList()
-		if len(list) == 0 {
+		if len(list) == 0 && !aliveOnly {
 			a.mu.Lock()
 			list = append([]*Proxy(nil), a.proxies...)
 			a.mu.Unlock()
 		}
-		if scheme != "" {
+		if scheme != "" || maxPing > 0 || country != "" {
 			filtrada := make([]*Proxy, 0, len(list))
 			for _, p := range list {
-				if p.Scheme == scheme {
-					filtrada = append(filtrada, p)
+				if scheme != "" && p.Scheme != scheme {
+					continue
 				}
+				if maxPing > 0 && (p.PingMs <= 0 || p.PingMs > maxPing) {
+					continue
+				}
+				if country != "" && !strings.EqualFold(p.Country, country) {
+					continue
+				}
+				filtrada = append(filtrada, p)
 			}
 			list = filtrada
 		}
@@ -511,9 +526,12 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 		}
 		var sb strings.Builder
 		for _, p := range list {
-			if format == "ob" {
+			switch format {
+			case "ob":
 				sb.WriteString(p.OB())
-			} else {
+			case "full":
+				sb.WriteString(p.Tag())
+			default:
 				sb.WriteString(p.Plain())
 			}
 			sb.WriteString("\n")
@@ -622,7 +640,7 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 			return
 		}
 		s := r.URL.Query().Get("strategy")
-		if s != "round-robin" && s != "random" && s != "sticky" {
+		if s != "round-robin" && s != "random" && s != "sticky" && s != "fastest" {
 			http.Error(w, "estrategia invalida", http.StatusBadRequest)
 			return
 		}

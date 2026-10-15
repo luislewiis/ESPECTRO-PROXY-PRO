@@ -26,6 +26,7 @@ type Proxy struct {
 	Checked   bool
 	PingMs    int
 	LastCheck int64
+	Country   string // Codigo o nombre de pais (GeoIP / P2.2)
 }
 
 var typeMap = map[string]string{

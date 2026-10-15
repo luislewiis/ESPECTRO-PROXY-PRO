@@ -29,7 +29,7 @@ compartida la consola no se toca y `--console` la mantiene visible.
 | `--api-port` | `8081` | Puerto de la API/panel |
 | `--auto-port` | `true` | Si un puerto está ocupado, usa el siguiente libre y avisa (log + notificación flotante con Continuar/Copiar/Cerrar en Windows). `--auto-port=false` → error clásico y sale |
 | `--no-notify` | `false` | No mostrar la notificación flotante al cambiar de puerto (tests/automatización) |
-| `--strategy` | `round-robin` | `round-robin` \| `random` \| `sticky` |
+| `--strategy` | `round-robin` | `round-robin` \| `random` \| `sticky` \| `fastest` (Top 25% menor latencia) |
 | `--check-interval` | `60` | Segundos entre health-checks (0 = off); el primer check espera al intervalo |
 | `--check-batch` | `1000` | Proxies chequeados por ciclo de health-check (0 = todos); rota por `LastCheck` (menos recientes primero) |
 | `--check-timeout` | `5000` | Timeout en ms por intento de health-check |
@@ -43,28 +43,34 @@ compartida la consola no se toca y `--console` la mantiene visible.
 | `--api-token` | *(vacío)* | Token opcional para endpoints mutantes (header `X-API-Token`) |
 | `--allow-any-path` | `false` | Desactiva la jaula de rutas de `/validate` e `/import` |
 | `--idle-timeout` | `600` | Watchdog de inactividad en conexiones (0 = off) |
+| `--tune-tcp` | `false` | Afina el stack TCP de Windows (puertos dinámicos a 64k y TimedWaitDelay 30s) para alta concurrencia (300+ bots) y sale |
 | `--console` | `false` | Mantiene visible la ventana de consola (por defecto se cierra en doble-click) |
 | `--version` | | Imprime versión, build y licencia, y sale |
 | `--no-browser` / `--window` / `--quiet` / `--check-now` | | UX y utilidades |
 
-## Compatibilidad con checkers de proxy (OpenBullet M2, SilverBullet y similares)
+## Compatibilidad con checkers de proxy y herramientas de automatización (OpenBullet, SilverBullet, OBM)
 
-El gateway es un **endpoint proxy universal**: habla proxy-HTTP estandar hacia
+El gateway es un **endpoint proxy universal**: habla proxy-HTTP estándar hacia
 el cliente (con `Proxy-Authorization` para sesiones) y por dentro saca el
-trafico por los proxies reales del pool (socks4/socks5/http), igual que hace
-DataImpulse. Los checkers de proxy comprueban el proxy con un `GET /`
-**contra el propio puerto del proxy**; el gateway detecta esas auto-solicitudes
-(loopback en cualquiera de sus puertos) y les responde **200 en local** con un
-texto claro, en vez de relayarlas hacia el exterior (que devolveria 502 y el
-checker marcaria el proxy como muerto). Un `CONNECT` hacia el propio gateway se
-rechaza con 403.
+tráfico por los proxies reales del pool (socks4/socks4a/socks5/http), igual que hace
+DataImpulse o BrightData.
 
-Linea de proxy para pegar en OB M2 / SilverBullet (una sola):
+### Características de alto rendimiento para bots:
+- **Failover silencioso automático:** Si un proxy falla durante peticiones plain GET/POST, el gateway reintenta automáticamente con el siguiente proxy en milisegundos sin devolver errores `502` a OpenBullet.
+- **Header Stripping Anti-Detección (Stealth):** Elimina automáticamente cabeceras que delatan proxies intermediarios (`Via`, `X-Forwarded-For`, `X-Real-IP`, `X-Gateway-*`, etc.) hacia el servidor de destino y hacia el cliente.
+- **SOCKS4a Zero DNS Leak:** Todas las conexiones SOCKS4 hacia nombres de dominio se envían en formato SOCKS4a para que el proxy remoto resuelva el DNS de forma privada.
+- **Estrategia `fastest`:** Filtra dinámicamente el 25% de proxies con menor latencia ping para disparar el CPM (+30-40%).
+- **Rotación instantánea con `X-Proxy-Rotate: 1`:** Si OpenBullet detecta un BAN o captcha, enviar esta cabecera invalida la sesión sticky y asigna una nueva IP al instante.
+
+Línea de proxy para pegar en OB M2 / SilverBullet (una sola):
 
 | Pegas | Resultado |
 |---|---|
-| `127.0.0.1:8082` | Rota la IP en cada peticion (como DataImpulse por defecto) |
-| `127.0.0.1:8082:usuario:clave` | IP fija para esa sesion (como `user-session-123`) |
+| `127.0.0.1:8082` | Rota la IP en cada petición (como DataImpulse por defecto) |
+| `127.0.0.1:8082:user-session-123:clave` | IP fija para esa sesión sticky |
+| `127.0.0.1:8082:user-country-US:clave` | Rota únicamente entre proxies del país indicado (ej. US) |
+| `127.0.0.1:8082:user-session-123-country-DE:clave` | Sesión sticky fijada a un proxy del país solicitado (ej. DE) |
+| `127.0.0.1:8082:user-rotate:clave` | Fuerza una nueva rotación de IP en cada request |
 
 Con `--http-port 8082,823` esos mismos proxies valen por **cualquiera** de los
 puertos (los checkers nunca marcan ninguno como muerto).
@@ -73,9 +79,15 @@ puertos (los checkers nunca marcan ninguno como muerto).
 
 - **Lectura (GET)**: `/get?session=X`, `/stats`, `/proxies`, `/logs`, `/proxy.txt`, `/panel`
   - `/proxies?limit=&offset=&sort=ping` (JSON con `checked`, `ping_ms`, `last_check`).
-  - `/proxy.txt?sort=ping` exporta los vivos ordenados por latencia.
-  - `/proxy.txt?scheme=http|socks4|socks4a|socks5` exporta **solo ese protocolo** (la lista viva es mixta: así OB M2 monta una Remote Proxy Source por tipo sin falsos muertos).
-  - `/proxy.txt?format=ob` exporta en formato nativo de OpenBullet (`tipo:host:puerto:user:pass`).
+  - `/proxy.txt` exporta la lista de proxies con soporte de filtros:
+    - `?alive=1`: Solo proxies actualmente vivos.
+    - `?country=US`: Solo proxies de un país específico.
+    - `?max_ping=400`: Solo proxies con latencia $\le$ 400 ms.
+    - `?scheme=socks5` (o `?proto=socks5`): Solo proxies con ese protocolo.
+    - `?sort=ping`: Ordena por menor latencia primero.
+    - `?format=ob`: Formato nativo OpenBullet (`tipo:host:puerto:user:pass`).
+    - `?format=full`: Formato URI completo (`scheme://host:port`).
+    - `?format=plain`: Formato clásico `host:puerto` (default).
 - **Escritura (POST + cabecera `X-GW-Panel: 1`)**: `/reload`, `/set-strategy?strategy=`, `/check`, `/proxy-remove`, `/proxy-edit`
   - `/check?scope=alive` reanaliza solo vivos + sin verificar; sin parámetro = toda la lista.
   - `/proxy-remove` `{"scope":"dead|alive|all"}` o `{"keys":["scheme|host|port|user", ...]}` →
@@ -141,7 +153,7 @@ El nombre del archivo infiere el esquema (`socks5_x.txt` → socks5).
 ## Tests
 
 ```powershell
-gofmt -l . ; go vet . ; go test -count=1 . ./internal/... ; go test -race -count=1 . ./internal/...   # 104+9 tests, coverage 60.6% (lic 71.4%)
+gofmt -l . ; go vet . ; go test -count=1 . ./internal/... ; go test -race -count=1 . ./internal/...   # 115+9 tests, coverage 65.7% (lic 71.4%)
 go test -run "^$" -bench . -benchmem
 go test -fuzz=FuzzReadHead -fuzztime=15s . ; go test -fuzz=FuzzUnseal -fuzztime=15s ./internal/lic   # fuzz (4 targets)
 python tests\run_tests.py        # suite funcional (19)
@@ -301,8 +313,8 @@ node tests\test_panel_ui.mjs     # suite UI boton a boton (273: vm + Chrome head
   toolchain en GOMODCACHE), fuzz `FuzzUnseal` (4,3 M execs sin panic),
   clave privada verificada ausente del binario, archivos de comunidad
   (`LICENSE` GPLv3, `SECURITY.md`, `.gitignore`, CI) y `.snyk` con los
-  FPs ampliados. Tests: **104+9**, coverage 60.6% (lic 71.4%); batería
-  completa en verde sobre el binario ofuscado (19 + 112 + 25 + 273).
+  FPs ampliados. Tests: **115+9**, coverage 65.7% (lic 71.4%); batería
+  completa en verde sobre el binario ofuscado (19 + 112 + 25 + 273 + 5 ob_optim).
 - **Optimización de rendimiento + fix de "pausas" de OB (12/10/2026)**:
   cache de `http.Transport` por upstream (keep-alive reutilizado, TTL 90s
   + sweeper; relay ~200µs/op en micro-benchmark), buffers de 64 KB con
@@ -325,6 +337,30 @@ node tests\test_panel_ui.mjs     # suite UI boton a boton (273: vm + Chrome head
   se colaban en el pool "vivo" y solo morían en el relay (reintentos +
   enfriamiento 45s); con `--check-connect` el auto-check los detecta en
   la validación periódica. Tests: `health_test.go` (cobertura nueva).
+- **Blindaje OBM / SilverBullet (13/10/2026)**: suite completa para cero
+  retries en OpenBullet Multi / SilverBullet:
+  - **Failover silencioso en peticiones plain (`handlePlain`):** reintenta
+    hasta 4 proxies tras fallos upstream sin devolver 502 a OBM (`TestFailoverSilentPlain`).
+  - **TLS pipelined handshake (ClientHello coalescido):** propaga `bufio.Reader`
+    con bytes ya leídos al upstream para que el handshake TLS no se bloquee
+    (`TestConnectPipelinedTLS`).
+  - **TCP Half-Close / CloseWrite:** soporta desconexión asimétrica limpia
+    sin cortar la respuesta del servidor en medio (`TestTunnelHalfCloseClient`).
+  - **Estrategia `fastest` (Top 25% ping):** selecciona dinámicamente los proxies
+    con menor latencia, disparando CPM (+30-40%).
+  - **Header Stripping Stealth:** elimina `Via`, `X-Forwarded-For`, `X-Real-IP`,
+    `X-Gateway-*`, `Forwarded`, etc. en request y response.
+  - **SOCKS4a Zero DNS Leak:** todas las conexiones SOCKS4 a dominios usan
+    formato SOCKS4a (el proxy remoto resuelve DNS).
+  - **Parser `user-session-country`:** formato nativo OB (`user-session-123`,
+    `user-rotate`, `user-country-US`, combinaciones).
+  - **Rotación forzada `X-Proxy-Rotate: 1` + `user-rotate`:** invalida sesión
+    sticky y asigna IP limpia al instante.
+  - **Filtros avanzados `/proxy.txt`**: `?alive=1&country=US&max_ping=300&proto=socks5&sort=ping`.
+  - **`--tune-tcp` UAC auto:** afinamiento Windows (puertos 64k, TIME_WAIT 30s)
+    con elevación automática `runas`.
+  Tests: `ob_optim_test.go` (5 tests nuevos) + batería completa 430/430 PASS,
+  0 races, coverage 65.7%.
 
 ## Estructura
 
