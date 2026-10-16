@@ -14,6 +14,10 @@ lista.txt
 Resultados/
 webhook.txt
 
+# Auto-Fuentes (--harvest): artefactos de runtime, no del repo
+harvested.txt
+harvest_sources.json
+
 # Licencias: clave privada del emisor y licencias de clientes
 licencias/
 *.lic

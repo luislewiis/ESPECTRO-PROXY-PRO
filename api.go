@@ -668,5 +668,8 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 	// Checker masivo (masscheck.go): listas/carpeta + cascada + geo + discord
 	a.registerChecker(mux)
 
+	// Auto-Fuentes (harvest.go): recoleccion continua + descubrimiento
+	a.registerHarvest(mux)
+
 	return mux
 }

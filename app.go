@@ -112,6 +112,10 @@ type App struct {
 	// reutiliza conexiones keep-alive al mismo proxy en vez de crear un
 	// Transport por peticion (ver transport.go).
 	tp sync.Map
+
+	// Auto-Fuentes (harvest.go): recolector continuo de proxies publicos.
+	harv         *Harvester
+	harvestCheck bool // drena health-check de los recien recolectados
 }
 
 func ExpandGlobs(args []string) []string {

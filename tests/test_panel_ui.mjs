@@ -75,7 +75,7 @@ function phaseA() {
   const ctx = vm.createContext(sandbox);
   try {
     vm.runInContext(
-      m[1] + '\n;globalThis.__F={fmtBytes,esc,splitHP,parsePort,bareScheme,schemeFromName,stickyLink,obLine,parseProxyLine,validateBatch,mergeReports,protoChips,massDelProto,massDelLine};globalThis.__setPD=v=>{proxyData=v;};globalThis.__setGW=v=>{lastGW=v;};',
+      m[1] + '\n;globalThis.__F={fmtBytes,esc,splitHP,parsePort,bareScheme,schemeFromName,stickyLink,obLine,parseProxyLine,validateBatch,mergeReports,protoChips,massDelProto,massDelLine,hAttr};globalThis.__setPD=v=>{proxyData=v;};globalThis.__setGW=v=>{lastGW=v;};',
       ctx, { filename: 'panel.js' });
   } catch (e) { ok(false, 'evaluar script del panel en vm', String(e)); return; }
   const F = sandbox.__F, setPD = sandbox.__setPD;
@@ -202,6 +202,11 @@ function phaseA() {
   setMass('');
   F.massDelLine();
   ok(massEl().value === '', 'massDelLine: texto vacio sin error', massEl().value);
+
+  // hAttr (Auto-Fuentes): escapado de atributos para data-url
+  ok(F.hAttr('https://x/a.txt') === 'https://x/a.txt', 'hAttr: url limpia', F.hAttr('https://x/a.txt'));
+  ok(F.hAttr('a"b&c<d>') === 'a&quot;b&amp;c&lt;d&gt;', 'hAttr: escapa comillas/&/<>', F.hAttr('a"b&c<d>'));
+  ok(!F.hAttr('x" onmouseover="evil').includes('"'), 'hAttr: no deja comillas sin escapar', F.hAttr('x" onmouseover="evil'));
 }
 
 /* ===================== FASE B: navegador ===================== */
@@ -1001,11 +1006,136 @@ async function phaseB() {
   }
 }
 
+/* ============ FASE C: Auto-Fuentes (--harvest) ============ */
+async function phaseC() {
+  console.log('\n===== FASE C: Auto-Fuentes (--harvest) =====');
+  const req = createRequire(path.join(PW_DIR, 'package.json'));
+  const { chromium } = req('playwright-core');
+  const TMP2 = path.join(os.tmpdir(), 'opencode', 'zz_uiharvest');
+  const HP = 19082, APIC = 19083, BASEC = `http://127.0.0.1:${APIC}`;
+  fs.rmSync(TMP2, { recursive: true, force: true });
+  fs.mkdirSync(TMP2, { recursive: true });
+  fs.writeFileSync(path.join(TMP2, 'proxies.txt'),
+    Array.from({ length: 20 }, (_, i) => `127.0.0.1:${2000 + i}`).join('\n') + '\n');
+  // --harvest-defer: no sale a la red durante el test (espera al intervalo)
+  const gw = spawn(EXE, ['--http-port', String(HP), '--api-port', String(APIC), '--no-browser',
+    '--check-interval', '0', '--quiet', '--no-state', '--harvest', '--harvest-defer',
+    '--harvest-interval', '9999'], { cwd: TMP2, stdio: 'ignore', windowsHide: true });
+  let browser;
+  const jgetC = async p => (await fetch(BASEC + p)).json();
+  const postC = async (p, b) => {
+    const r = await fetch(BASEC + p,
+      { method: 'POST', headers: { 'X-GW-Panel': '1', 'Content-Type': 'application/json' },
+        body: JSON.stringify(b || {}) });
+    let j = null; try { j = await r.json(); } catch (e) {}
+    return { status: r.status, j };
+  };
+  try {
+    if (!await poll(async () => { try { return (await fetch(BASEC + '/stats')).ok; } catch (e) { return false; } }, 15000))
+      { ok(false, 'C gateway Auto-Fuentes arranca'); return; }
+
+    // --- API ---
+    const st0 = await jgetC('/harvest/status');
+    ok(st0.enabled === true, 'C1 /harvest/status enabled', JSON.stringify(st0).slice(0, 90));
+    ok(st0.stats.sources >= 40 && st0.stats.enabled >= 40,
+      'C2 catalogo builtin cargado (40+ fuentes)', st0.stats.sources + '/' + st0.stats.enabled);
+    ok(st0.stats.running === false, 'C3 sin recoleccion en curso (--harvest-defer)');
+    ok(st0.stats.out_file.endsWith('harvested.txt'), 'C4 salida en harvested.txt',
+      st0.stats.out_file);
+
+    const src0 = await jgetC('/harvest/sources');
+    ok(src0.ok === true && (src0.sources || []).length >= 40, 'C5 /harvest/sources lista',
+      String((src0.sources || []).length));
+    ok(src0.sources.every(s => s.url.startsWith('https://')), 'C6 todas las fuentes https');
+
+    const bad = await postC('/harvest/source', { url: 'ftp://x/y.txt', enabled: true });
+    ok(bad.status === 400, 'C7 rechaza esquema no http', String(bad.status));
+    const bad2 = await postC('/harvest/source', { url: 'http://127.0.0.1:9/x.txt', enabled: true });
+    ok(bad2.status === 400, 'C8 rechaza host local/privado (SSRF)', String(bad2.status));
+    const bad3 = await postC('/harvest/source/remove', { url: '' });
+    ok(bad3.status === 400, 'C9 remove sin url -> 400', String(bad3.status));
+
+    const add = await postC('/harvest/source',
+      { name: 'zz_test', url: 'https://example.com/zz_socks5.txt', enabled: true });
+    ok(add.status === 200 && (add.j.sources || []).some(s => s.url === 'https://example.com/zz_socks5.txt'),
+      'C10 agrega fuente del usuario', String(add.status));
+    const del = await postC('/harvest/source/remove', { url: 'https://example.com/zz_socks5.txt' });
+    ok(del.status === 200 && !(del.j.sources || []).some(s => s.url === 'https://example.com/zz_socks5.txt'),
+      'C11 quita fuente del usuario');
+
+    const purge = await postC('/harvest/purge', {});
+    ok(purge.status === 200 && purge.j.removed === 0, 'C12 purge sin muertos -> 0',
+      JSON.stringify(purge.j));
+
+    const noPanel = await fetch(BASEC + '/harvest/run', { method: 'POST' });
+    ok(noPanel.status === 403, 'C13 /harvest/run sin cabecera de panel -> 403',
+      String(noPanel.status));
+    const listBody = await (await fetch(BASEC + '/harvest/sources')).text();
+    ok(listBody.length > 100, 'C14 /harvest/sources responde JSON con contenido');
+
+    // --- panel ---
+    browser = await chromium.launch({
+      executablePath: CHROME, headless: true,
+      args: ['--disable-gpu', '--disable-dev-shm-usage', '--no-sandbox'],
+    });
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+    const perr = [];
+    page.on('pageerror', e => perr.push(String(e)));
+    await page.goto(BASEC + '/panel', { waitUntil: 'load', timeout: 20000 });
+    ok(await poll(() => page.locator('#harvestStats .vchip').count().then(n => n >= 5), 12000),
+      'C15 panel: chips de Auto-Fuentes visibles',
+      String(await page.locator('#harvestStats .vchip').count()));
+    ok(await page.locator('#harvestOff').isHidden(), 'C16 panel: aviso "desactivado" oculto');
+    ok(await page.locator('#harvestBody').isVisible(), 'C17 panel: cuerpo de Auto-Fuentes visible');
+    ok(await poll(() => page.locator('#hsrctbody tr').count().then(n => n >= 40), 12000),
+      'C18 panel: tabla de fuentes con 40+ filas',
+      String(await page.locator('#hsrctbody tr').count()));
+    const chipTxt = await page.locator('#harvestStats').innerText();
+    ok(/fuentes/.test(chipTxt), 'C19 chips muestran el contador de fuentes', chipTxt.replace(/\n/g, ' | '));
+    // filtrar fuentes
+    await page.fill('#hsrcFilter', 'monosans');
+    await sleep(200);
+    const nf = await page.locator('#hsrctbody tr').count();
+    ok(nf >= 1 && nf < 40, 'C20 filtro de fuentes reduce la tabla', String(nf));
+    await page.fill('#hsrcFilter', '');
+    await sleep(200);
+    // pausar/activar la primera fuente (esperando al re-render entre clics)
+    const firstUrl = await page.locator('#hsrctbody button[data-act="toggle"]').first()
+      .getAttribute('data-url');
+    await poll(() => page.locator('#hsrctbody button[data-act="toggle"][data-on="0"]')
+      .count().then(n => n >= 1), 8000);
+    await page.locator('#hsrctbody button[data-act="toggle"][data-on="0"]').first().click();
+    ok(await poll(async () => {
+      const r = await jgetC('/harvest/sources');
+      const s = (r.sources || []).find(x => x.url === firstUrl);
+      return s && s.enabled === false;
+    }, 8000), 'C21 panel: pausar fuente persiste en el servidor');
+    await poll(() => page.locator('#hsrctbody button[data-act="toggle"][data-on="1"]')
+      .count().then(n => n >= 1), 8000);
+    await page.locator('#hsrctbody button[data-act="toggle"][data-on="1"]').first().click();
+    ok(await poll(async () => {
+      const r = await jgetC('/harvest/sources');
+      const s = (r.sources || []).find(x => x.url === firstUrl);
+      return s && s.enabled === true;
+    }, 8000), 'C22 panel: reactivar fuente persiste en el servidor');
+    // el archivo de fuentes se guardo en el cwd del gateway
+    ok(fs.existsSync(path.join(TMP2, 'harvest_sources.json')),
+      'C23 harvest_sources.json escrito junto a la lista');
+    ok(perr.length === 0, 'C24 0 pageerror en el panel de Auto-Fuentes', perr.slice(0, 2).join(' || '));
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+    gw.kill();
+    await sleep(300);
+    try { fs.rmSync(TMP2, { recursive: true, force: true }); } catch (e) {}
+  }
+}
+
 /* ===================== main ===================== */
 try {
   if (!fs.existsSync(EXE)) { console.log('Falta ProxyGateway.exe — compila antes de correr esta suite.'); process.exit(1); }
   phaseA();
   await phaseB();
+  await phaseC();
 } catch (e) {
   fail++; failures.push('excepcion inesperada: ' + (e && e.stack || e));
   console.log('FAIL excepcion inesperada: ' + (e && e.stack || e));

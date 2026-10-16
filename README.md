@@ -44,6 +44,12 @@ compartida la consola no se toca y `--console` la mantiene visible.
 | `--allow-any-path` | `false` | Desactiva la jaula de rutas de `/validate` e `/import` |
 | `--idle-timeout` | `600` | Watchdog de inactividad en conexiones (0 = off) |
 | `--tune-tcp` | `false` | Afina el stack TCP de Windows (puertos dinámicos a 64k y TimedWaitDelay 30s) para alta concurrencia (300+ bots) y sale |
+| `--harvest` | `false` | **Auto-Fuentes**: recolecta proxies de ~50 fuentes públicas en bucle y descubre fuentes nuevas solo (ver más abajo) |
+| `--harvest-interval` | `15` | Minutos entre pasadas del Auto-Fuentes |
+| `--harvest-out` | `harvested.txt` | Archivo **propio** del Auto-Fuentes (nunca toca `proxies.txt`) |
+| `--harvest-max-lines` | `120000` | Tope de líneas del archivo recolectado (0 = sin tope). 480k líneas ≈ 700 MB de RAM; 120k ≈ 220 MB |
+| `--harvest-defer` | `false` | No recolectar al arrancar: esperar al primer intervalo |
+| `--no-harvest-check` | `false` | No validar lo recién recolectado (queda para el health-check normal) |
 | `--console` | `false` | Mantiene visible la ventana de consola (por defecto se cierra en doble-click) |
 | `--version` | | Imprime versión, build y licencia, y sale |
 | `--no-browser` / `--window` / `--quiet` / `--check-now` | | UX y utilidades |
@@ -74,6 +80,84 @@ Línea de proxy para pegar en OB M2 / SilverBullet (una sola):
 
 Con `--http-port 8082,823` esos mismos proxies valen por **cualquiera** de los
 puertos (los checkers nunca marcan ninguno como muerto).
+
+## Auto-Fuentes (`--harvest`): recolección continua sin intervención
+
+El gateway deja de depender de que tú pegues listas: recolecta solo, cada
+`--harvest-interval` minutos, de un catálogo curado de **~50 fuentes públicas
+verificadas en vivo** (TheSpeedX, monosans, proxifly, ErcinDedeoglu, MuRongPIG,
+hookzof, spys.me, ProxyScrape v4…), **descubre fuentes nuevas** leyendo los
+catálogos de *otros* scrapers (meta-harvesting) y las prueba antes de aceptarlas.
+
+```powershell
+.\ProxyGateway.exe --harvest --harvest-interval 15 --strategy fastest --check-connect
+```
+
+### Qué hace cada ciclo
+
+1. **Recolecta** las fuentes habilitadas en paralelo (24 descargas simultáneas).
+2. **Extrae** `IP:PUERTO` con regex y **descarta basura**: privadas, loopback,
+   link-local, CGNAT (100.64/10), documentación (192.0.2/24, 203.0.113/24),
+   reservadas (240/4) y `0.0.0.0/8` (el relleno típico de las listas gratis).
+3. **Deduplica** contra el pool existente (por protocolo + host + puerto).
+4. **Escribe solo lo nuevo** en su archivo propio (`harvested.txt`), nunca en
+   `proxies.txt`.
+5. **Drena un health-check** de lo recién llegado (300 workers, `--check-connect`
+   por defecto con el flag puesto): promoted al pool **solo si tuneliza**.
+
+### Política "solo vivo y filtrado"
+
+Lo recolectado entra al pool como **no vivo y sin verificar**, así que
+`/proxy.txt?alive=1` — lo que come OB — **jamás** entrega un proxy sin validar.
+Esto es lo que evita las "pausas": la basura de las listas gratis (≈98% muerta)
+nunca llega a tus bots.
+
+### Números reales medidos (16/10/2026, esta máquina)
+
+| Métrica | Valor |
+|---|---|
+| Fuentes builtin OK | **51/51** (0 fallidas) |
+| Líneas crudas por pasada | ~808.000 |
+| Únicos por protocolo+host:puerto | ~806.000 |
+| **Únicos reales `IP:PUERTO`** | **~210.000** (el resto son duplicados entre fuentes) |
+| Puerto TCP abierto (muestra aleatoria de 400) | 33% |
+| **Que tunelizan de verdad** | **~1–2%** |
+| Tope por defecto (`--harvest-max-lines 120000`) → vivos | ~1.000–2.500 |
+| Memoria con 123.000 proxies | ~220 MB |
+
+> **Ojo con el "millón de proxies"**: el ecosistema *gratuito* mundial tiene
+> ~200–800 k entradas en cualquier instante y solo el 1–3% funciona. Para
+> **millones de IPs limpias** la vía es tu proveedor rotativo (DataImpulse); el
+> pool gratis es para volumen barato y para no depender de nadie. Si aun así
+> quieres todo lo que hay: `--harvest-max-lines 0` (asume ~700 MB+ de RAM).
+
+### Auto-descubrimiento de fuentes (meta-harvesting)
+
+`Descubrir fuentes nuevas` en el panel lee los **catálogos de fuentes** de otros
+proyectos scrapers (`config.toml` de monosans, `Sources.txt` de
+sascha/Zeiger, `sources.txt` de Thordata, READMEs de proxifly/TheSpeedX) y
+extrae las URLs de listas. Cada candidata se **prueba en vivo**: solo se agrega
+si entrega ≥5 `IP:PUERTO`. Es la forma de pasar de 50 → cientos de fuentes sin
+adivinar. Si defines `GITHUB_TOKEN` (o `GH_TOKEN`) en el entorno, además usa la
+API de **GitHub Code Search** para encontrar listas recién publicadas.
+
+### Endpoints
+
+| Endpoint | Método | Qué hace |
+|---|---|---|
+| `/harvest/status` | GET | Estado + contadores (fuentes, crudas, únicas, nuevas, vivos, pool) |
+| `/harvest/sources` | GET | Lista de fuentes (nombre, URL, proto, origen, activa/pausada) |
+| `/harvest/run` | POST | Fuerza una pasada ahora |
+| `/harvest/discover` | POST | Busca y prueba fuentes nuevas |
+| `/harvest/purge` | POST | Borra del archivo recolectado los muertos ya verificados |
+| `/harvest/source` | POST | Agrega/edita/pausa una fuente propia (`{name,url,proto,enabled}`) |
+| `/harvest/source/remove` | POST | Quita una fuente (`{url}`) |
+| `/harvest/export` | GET | Descarga el `harvested.txt` |
+
+Mutantes: `POST` + cabecera `X-GW-Panel` (+ `X-API-Token` si está puesto).
+Lecturas: token solo si `--api-token` está configurado. Las descargas pasan por
+una **guarda SSRF** (solo `http`/`https`, hosts loopback/privados bloqueados,
+tope de 24 MB por descarga).
 
 ## API
 
@@ -112,6 +196,10 @@ puertos (los checkers nunca marcan ninguno como muerto).
     registro bruto del run).
   - `GET /checker/export?proto=all|http|socks4|socks5&format=full|plain` · `GET /checker/countries` · `GET /checker/report`
   - Salidas en `Resultados/[dd.mm.yy] [hh.mm.ss]/`: `Live_HTTP.txt`, `Live_SOCKS4.txt`, `Live_SOCKS5.txt`, `Paises Validados/<pais>.txt` (con geo) y `Report.json`.
+- **Auto-Fuentes** (sección "Auto-Fuentes" del panel): `/harvest/status`,
+  `/harvest/sources`, `/harvest/run`, `/harvest/discover`, `/harvest/purge`,
+  `/harvest/source`, `/harvest/source/remove`, `/harvest/export`
+  (detalle arriba; mutantes con `X-GW-Panel`).
 - Si `--api-token` está configurado, los endpoints de escritura exigen `X-API-Token`,
   y las lecturas sensibles (`/proxies`, `/logs`, `/proxy.txt`, `/checker/status`,
   `/checker/hits`, `/checker/export`, `/checker/report`) también (401); 10 fallos de token
@@ -153,13 +241,13 @@ El nombre del archivo infiere el esquema (`socks5_x.txt` → socks5).
 ## Tests
 
 ```powershell
-gofmt -l . ; go vet . ; go test -count=1 . ./internal/... ; go test -race -count=1 . ./internal/...   # 115+9 tests, coverage 65.7% (lic 71.4%)
+gofmt -l . ; go vet . ; go test -count=1 . ./internal/... ; go test -race -count=1 . ./internal/...   # 129+9 tests, coverage 64.9% (lic 71.4%)
 go test -run "^$" -bench . -benchmem
 go test -fuzz=FuzzReadHead -fuzztime=15s . ; go test -fuzz=FuzzUnseal -fuzztime=15s ./internal/lic   # fuzz (4 targets)
 python tests\run_tests.py        # suite funcional (19)
 python tests\test_sticky_api.py  # sesiones/API (25)
 python tests\run_deep_tests.py   # suite profunda (112: S1-S14)
-node tests\test_panel_ui.mjs     # suite UI boton a boton (273: vm + Chrome headless)
+node tests\test_panel_ui.mjs     # suite UI boton a boton (300: vm + 2x Chrome headless)
 ```
 
 ## Decisiones de diseño
@@ -361,6 +449,39 @@ node tests\test_panel_ui.mjs     # suite UI boton a boton (273: vm + Chrome head
     con elevación automática `runas`.
   Tests: `ob_optim_test.go` (5 tests nuevos) + batería completa 430/430 PASS,
   0 races, coverage 65.7%.
+- **Auto-Fuentes (`--harvest`) — recolección continua (16/10/2026)**: el
+  gateway deja de depender de listas pegadas a mano. `harvest.go` recolecta un
+  catálogo curado de **51 fuentes públicas verificadas en vivo** (0 fallidas),
+  extrae `IP:PUERTO` con regex, filtra basura (privadas, loopback, link-local,
+  CGNAT, documentación, reservadas, `0.0.0.0/8`), deduplica por protocolo y
+  escribe **solo lo nuevo** en su archivo propio (`harvested.txt`): **nunca**
+  toca `proxies.txt`. Lo recolectado entra al pool como **no vivo y sin
+  verificar** (política "solo vivo y filtrado"), de modo que
+  `/proxy.txt?alive=1` — lo que come OB — jamás entrega un proxy sin validar;
+  el **drenaje** (300 workers) lo promueve solo si tuneliza.
+  - **Auto-descubrimiento (meta-harvesting)**: `Discover()` lee los catálogos
+    de fuentes de otros scrapers (monosans `config.toml`, `Sources.txt` de
+    sascha/Zeiger, `sources.txt` de Thordata, READMEs) + GitHub Code Search
+    (con `GITHUB_TOKEN`), y **prueba en vivo** cada candidata: solo se agrega
+    si entrega ≥5 `IP:PUERTO`.
+  - **Guarda SSRF**: solo `http`/`https`, hosts loopback/privados/link-local
+    bloqueados (comprobando el DNS resuelto), tope de 24 MB por descarga.
+  - **Tope de memoria** `--harvest-max-lines` (120k por defecto): 480k líneas
+    costaban **712 MB** de RAM; con el tope, 123k proxies quedan en **222 MB**.
+  - **Purga** de muertos ya verificados (`/harvest/purge`) para mantener el
+    pool limpio y liberar el tope.
+  - Endpoints `/harvest/status|sources|run|discover|purge|source|export` +
+    sección nueva en el panel (contadores, tabla de fuentes, pausar/activar,
+    filtro, añadir fuente propia).
+  - Medición real: 808k crudas → 806k únicas por protocolo → **210k únicas
+    `IP:PUERTO`** → **1-2% tuneliza** (444 vivos validados en una pasada de
+    180 s). Dato de contexto: el "806.121 proxies" que circula son
+    **duplicados**; al deduplicar queda ~1/4.
+  - Tests: `harvest_test.go` (10 tests: extracción/filtros, guarda SSRF,
+    persistencia y merge de fuentes, descubrimiento, tope de líneas,
+    demote de recién llegados, purga) + fase C de la suite UI (24 tests).
+    Batería: **19 + 112 + 25 + 300 + 178** (Go) PASS, 0 races,
+    coverage 64.9% (lic 71.4%).
 
 ## Estructura
 
@@ -370,6 +491,8 @@ app.go         App, pick/sesiones, índices, markFail/markOK
 gateway.go     relay CONNECT/plain, túneles, watchdog idle
 upstream.go    dial a proxies HTTP/SOCKS + taxonomía de errores
 health.go      health-check periódico (scope, ping, reintentos)
+harvest.go     Auto-Fuentes: recoleccion + descubrimiento de fuentes
+harvest_api.go endpoints /harvest/*
 masscheck.go   checker masivo (cascada, geo, país, discord, /checker/*)
 state.go       estado persistente <lista>.state.json
 api.go         endpoints REST + panel embebido
@@ -380,6 +503,6 @@ internal/lic/  formato de licencia (Ed25519 + AES-GCM por máquina)
 lictool/       emisión de licencias (clave privada; uso del vendedor)
 panel.html     panel (embed)
 legacy/        prototipo Python original (referencia)
-tests/         suites Python (19 + 25 + 112) + test_panel_ui.mjs (273, Node)
+tests/         suites Python (19 + 25 + 112) + test_panel_ui.mjs (300, Node)
 build_release.ps1  build de release (garble si está instalado)
 ```

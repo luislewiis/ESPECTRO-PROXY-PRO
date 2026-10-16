@@ -628,6 +628,49 @@ td.ping{color:var(--faint);white-space:nowrap}
     </div>
   </section>
 
+  <!-- auto-fuentes (harvest.go): recoleccion continua + descubrimiento -->
+  <section id="harvestSection">
+    <div class="sec-head">
+      <h2>Auto-Fuentes</h2><div class="line"></div>
+      <div class="dl"><a href="/harvest/export">↓ recolectado</a></div>
+    </div>
+    <div class="importcard">
+      <div id="harvestOff" class="hint" hidden>
+        El Auto-Fuentes está <b>desactivado</b>. Arranca el gateway con <b>--harvest</b>
+        (opcional: <b>--harvest-interval 15</b>, <b>--harvest-out harvested.txt</b>) y recargará
+        proxies solo, cada 15 minutos, sin tocar tu <b>proxies.txt</b>.
+      </div>
+      <div id="harvestBody" hidden>
+        <div class="chips" id="harvestStats"></div>
+        <div class="irow" style="margin-top:12px">
+          <button class="primary" onclick="harvestRun()">Recolectar ahora</button>
+          <button onclick="harvestDiscover()">Descubrir fuentes nuevas</button>
+          <button onclick="harvestPurge()">Purgar muertos del archivo</button>
+        </div>
+        <div class="hint" id="harvestHint" style="margin-top:8px"></div>
+
+        <div class="irow" style="margin-top:14px">
+          <input type="text" id="hsrcName" placeholder="Nombre (opcional)">
+          <input type="text" id="hsrcUrl" placeholder="https://…/socks5.txt"
+            onkeydown="if(event.key==='Enter')harvestAdd()">
+          <button onclick="harvestAdd()">Añadir fuente</button>
+        </div>
+        <div class="hint" style="margin-top:6px">Solo http/https. Las fuentes descubiertas se
+          prueban en vivo antes de aceptarse: se agregan únicamente las que entregan proxies de verdad.</div>
+
+        <div class="irow" style="margin-top:12px">
+          <input type="text" id="hsrcFilter" placeholder="Filtrar fuentes…" oninput="renderHarvestSources()">
+        </div>
+        <div class="tablewrap" style="max-height:340px;overflow:auto;margin-top:8px">
+          <table>
+            <thead><tr><th>Fuente</th><th>Tipo</th><th>Origen</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <tbody id="hsrctbody"><tr class="emptyrow"><td colspan="5">cargando…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- proxies -->
   <section>
     <div class="sec-head">
@@ -1757,14 +1800,128 @@ refreshMass();
 // puede mandar cabeceras
 (function(){
   const t = gwToken(); if (!t) return;
-  document.querySelectorAll('a[href*="/proxy.txt"],a[href*="/checker/export"],a[href*="/checker/report"]').forEach(a => {
+  document.querySelectorAll('a[href*="/proxy.txt"],a[href*="/checker/export"],a[href*="/checker/report"],a[href*="/harvest/export"]').forEach(a => {
     const u = new URL(a.getAttribute('href'), location.href);
     if (!u.searchParams.has('token')) u.searchParams.set('token', t);
     a.setAttribute('href', u.pathname + u.search + u.hash);
   });
 })();
+/* ---------- Auto-Fuentes (harvest.go) ---------- */
+let hsrcCache = [];
+function hAttr(v){
+  return String(v).replace(/&/g,'&amp;').replace(/"/g,'&quot;')
+    .replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+async function harvestRefresh(){
+  const off = document.getElementById('harvestOff');
+  const body = document.getElementById('harvestBody');
+  if(!off || !body) return;
+  let r;
+  try{ r = await jget('/harvest/status'); }catch(e){ return; }
+  if(!r.enabled){ off.hidden = false; body.hidden = true; return; }
+  off.hidden = true; body.hidden = false;
+  const s = r.stats || {};
+  const c = [];
+  c.push(['proto', (s.enabled||0) + '/' + (s.sources||0) + ' fuentes']);
+  c.push([(s.sources_fail ? 'bad' : 'ok'), (s.sources_ok||0) + ' OK · ' + (s.sources_fail||0) + ' fallidas']);
+  c.push(['dup', (s.raw||0) + ' crudas → ' + (s.unique||0) + ' únicas']);
+  c.push(['ok', (s.new||0) + ' nuevas · ' + (s.alive||0) + ' vivos']);
+  c.push(['ign', 'pool ' + (s.pool_alive||0) + '/' + (s.pool_total||0)]);
+  c.push(['ign', 'acumulado: ' + (s.grand_new||0)]);
+  if(s.running) c.push(['proto','recolectando…']);
+  else if(s.last_run) c.push(['ign','última ' + new Date(s.last_run*1000).toLocaleTimeString() +
+    ' (' + (s.last_dur_ms||0) + ' ms)']);
+  if(s.github_search) c.push(['ok','GitHub Search ON']);
+  document.getElementById('harvestStats').innerHTML =
+    c.map(x => '<span class="vchip ' + x[0] + '">' + esc(x[1]) + '</span>').join('');
+  document.getElementById('harvestHint').textContent = s.last_error
+    ? ('último aviso: ' + s.last_error)
+    : ('cada ' + (s.interval_min||15) + ' min · salida: ' + (s.out_file || 'harvested.txt'));
+  harvestSources(true);
+}
+async function harvestSources(force){
+  if(force || !hsrcCache.length){
+    try{
+      const r = await jget('/harvest/sources');
+      hsrcCache = r.sources || [];
+    }catch(e){ return; }
+  }
+  renderHarvestSources();
+}
+function renderHarvestSources(){
+  const tb = document.getElementById('hsrctbody');
+  if(!tb) return;
+  const f = (document.getElementById('hsrcFilter').value || '').trim().toLowerCase();
+  const list = hsrcCache.filter(s => !f ||
+    ((s.name||'') + ' ' + (s.url||'')).toLowerCase().includes(f));
+  if(!list.length){
+    tb.innerHTML = '<tr class="emptyrow"><td colspan="5">sin fuentes</td></tr>';
+    return;
+  }
+  tb.innerHTML = list.map(s => '<tr>' +
+    '<td style="max-width:420px;word-break:break-all">' + esc(s.name || '') +
+      '<div class="hint">' + esc(s.url || '') + '</div></td>' +
+    '<td>' + esc(s.proto || 'auto') + '</td>' +
+    '<td>' + esc(s.origin || 'user') + '</td>' +
+    '<td>' + (s.enabled ? '<span class="vchip ok">activa</span>'
+                        : '<span class="vchip ign">pausada</span>') + '</td>' +
+    '<td style="white-space:nowrap">' +
+      '<button class="fchip" data-act="toggle" data-url="' + hAttr(s.url) + '" data-on="' +
+        (s.enabled ? '0' : '1') + '">' + (s.enabled ? 'pausar' : 'activar') + '</button> ' +
+      '<button class="fchip" data-act="del" data-url="' + hAttr(s.url) + '">quitar</button>' +
+    '</td></tr>').join('');
+  tb.querySelectorAll('button[data-act]').forEach(b => {
+    b.onclick = () => {
+      if(b.dataset.act === 'toggle') harvestToggle(b.dataset.url, b.dataset.on === '1');
+      else harvestRemove(b.dataset.url);
+    };
+  });
+}
+async function harvestRun(){
+  try{ await jpost('/harvest/run', {}); toast('Recolección lanzada'); harvestRefresh(); }
+  catch(e){ toast('No se pudo lanzar (revisa el log)', true); }
+}
+async function harvestDiscover(){
+  try{ await jpost('/harvest/discover', {}); toast('Buscando fuentes nuevas…'); harvestRefresh(); }
+  catch(e){ toast('No se pudo lanzar (revisa el log)', true); }
+}
+async function harvestPurge(){
+  try{
+    const r = await jpost('/harvest/purge', {});
+    toast('Purgados ' + (r.removed||0) + ' muertos del archivo recolectado');
+    harvestRefresh();
+  }catch(e){ toast('No se pudo purgar', true); }
+}
+async function harvestAdd(){
+  const name = document.getElementById('hsrcName').value.trim();
+  const url = document.getElementById('hsrcUrl').value.trim();
+  if(!url){ toast('Pega una URL de lista', true); return; }
+  try{
+    await jpost('/harvest/source', {name:name, url:url, enabled:true});
+    document.getElementById('hsrcName').value = '';
+    document.getElementById('hsrcUrl').value = '';
+    toast('Fuente añadida');
+    harvestRefresh();
+  }catch(e){ toast('URL inválida o no permitida', true); }
+}
+async function harvestToggle(url, enabled){
+  try{
+    await jpost('/harvest/source', {url:url, enabled:enabled});
+    toast(enabled ? 'Fuente activada' : 'Fuente pausada');
+    harvestRefresh();
+  }catch(e){ toast('Fallo al cambiar la fuente', true); }
+}
+async function harvestRemove(url){
+  try{
+    await jpost('/harvest/source/remove', {url:url});
+    toast('Fuente quitada');
+    harvestRefresh();
+  }catch(e){ toast('Fallo al quitar la fuente', true); }
+}
 setInterval(refresh, 4000);
 setInterval(refreshProxies, 15000);
+setInterval(harvestRefresh, 7000);
+harvestRefresh();
 </script>
 </body>
 </html>

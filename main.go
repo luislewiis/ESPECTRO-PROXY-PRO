@@ -142,6 +142,7 @@ func reorderArgs() {
 		"check-interval": true, "check-batch": true, "test-url": true,
 		"api-token": true, "idle-timeout": true, "state-file": true,
 		"check-timeout": true, "check-retries": true,
+		"harvest-interval": true, "harvest-out": true, "harvest-max-lines": true,
 	}
 	args := os.Args[1:]
 	var flags, files []string
@@ -264,6 +265,12 @@ func main() {
 	stateFileFlag := flag.String("state-file", "", "ruta del archivo de estado persistente (default: <lista>.state.json)")
 	showVersion := flag.Bool("version", false, "imprime la version y la licencia y sale")
 	tuneTCPFlag := flag.Bool("tune-tcp", false, "afina el stack TCP de Windows para alta concurrencia (OpenBullet/SilverBullet) y sale")
+	harvest := flag.Bool("harvest", false, "activa el Auto-Fuentes: recolecta proxies de ~50 fuentes publicas en bucle y descubre fuentes nuevas solo")
+	harvestItv := flag.Int("harvest-interval", harvestItvMin, "minutos entre pasadas del Auto-Fuentes")
+	harvestOut := flag.String("harvest-out", harvestOutDefault, "archivo propio donde el Auto-Fuentes guarda lo recolectado (nunca toca proxies.txt)")
+	harvestNoCheck := flag.Bool("no-harvest-check", false, "el Auto-Fuentes no valida los recien recolectados (quedan para el health-check normal)")
+	harvestMaxLines := flag.Int("harvest-max-lines", harvestMaxLinesDefault, "tope de lineas del archivo recolectado por el Auto-Fuentes (0 = sin tope)")
+	harvestDefer := flag.Bool("harvest-defer", false, "el Auto-Fuentes no recolecta al arrancar: espera al primer intervalo")
 	flag.Parse()
 
 	if *showVersion {
@@ -334,12 +341,27 @@ func main() {
 		app.idle = time.Duration(*idleTimeout) * time.Second
 	}
 	logConsola = app.logf
+	// Auto-Fuentes (harvest.go): se crea ANTES de cargar la lista para que su
+	// archivo (<harvest-out>) entre al pool desde el arranque. Solo escribe en
+	// ese archivo propio: proxies.txt y las listas del usuario quedan intactas.
+	if *harvest {
+		app.harvestCheck = !*harvestNoCheck
+		app.harv = newHarvester(app, *harvestOut, *harvestItv)
+		app.harv.maxLines = *harvestMaxLines
+		app.harv.deferFirst = *harvestDefer
+	}
 	// Estado persistente: se carga ANTES de la lista para fusionarlo
 	// (memoria > disco > default) y se guarda al salir (reinicio/reload
 	// no re-analiza desde cero).
 	app.loadState()
 	defer app.saveState()
 	app.LoadProxies()
+	// El snapshot de disco ya cumplio su funcion (fusionar disco -> memoria) y
+	// en pools grandes (200k+ con el Auto-Fuentes) retenerlo cuesta ~100 MB.
+	// Desde aqui manda la memoria; saveState lo reescribe con lo que hay.
+	app.mu.Lock()
+	app.diskState = nil
+	app.mu.Unlock()
 	_, total := app.counts()
 	if total == 0 && *checkNow {
 		fmt.Fprintln(os.Stderr, "ERROR: no se cargo ningun proxy. Ejemplo de linea: 1.2.3.4:8080")
@@ -486,6 +508,9 @@ func main() {
 	go app.CheckerLoop()
 	go app.SessionSweeper()
 	go app.TransportSweeper() // recicla transports de proxies sin uso (transport.go)
+	if app.harv != nil {
+		go app.harv.Loop() // Auto-Fuentes: recoleccion continua (harvest.go)
+	}
 
 	apiBase := fmt.Sprintf("http://%s:%d", *bind, *apiPort)
 	// El banner informativo (marca, endpoints, estrategia, estado) vive
