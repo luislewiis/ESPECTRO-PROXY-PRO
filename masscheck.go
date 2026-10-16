@@ -33,6 +33,11 @@ const (
 	massMaxHits = 100000 // hits retenidos en memoria (export/panel)
 	massMaxText = 20 << 20
 	massBodyGeo = 64 << 10
+
+	// geoCountryURL: pais de RESPALDO cuando no hay base mmdb. Solo se
+	// consulta para proxies VIVOS (unos pocos entre miles): el limite de
+	// ip-api (~45/min) no ahoga el chequeo, y la validacion no depende de el.
+	geoCountryURL = "http://ip-api.com/json?fields=status,country,countryCode,query"
 )
 
 type massItem struct {
@@ -50,10 +55,19 @@ type massHit struct {
 	Ping    int    `json:"ping"`
 	Anon    string `json:"anon"`
 	Country string `json:"country"`
+	ISO     string `json:"iso,omitempty"`
+	IP6     bool   `json:"ip6,omitempty"`
 }
 
 type massJob struct {
-	judge     string
+	site        string // URL de validacion (Site)
+	successKey  string // texto exigido en el cuerpo (validacion de contenido)
+	siteIsJudge bool   // el site ES el juez: 1 sola peticion por proxy
+	judge       string // URL del juez (anonimato / pais de respaldo)
+	anonURL     string // juez para anonimato ("" = no clasificar)
+	parallel    bool   // cascada en paralelo (mas CPM)
+	geoDB       *geoDB // GeoIP offline (nil = se usa el juez)
+
 	country   string // filtro en minusculas ("" = sin filtro)
 	geo       bool
 	retries   int
@@ -84,6 +98,20 @@ type massJob struct {
 	filtered    atomic.Int64
 	removed     atomic.Int64 // vivos borrados a mano desde el panel
 
+	// Actividad en vivo por protocolo (panel "Thread State" estilo
+	// Proxy Checker: HTTP/Socks4/Socks5 - [ n/n/n ]).
+	actHTTP atomic.Int64
+	actS4   atomic.Int64
+	actS5   atomic.Int64
+
+	// Reparto de anonimato y de version de IP de los vivos.
+	nElite  atomic.Int64
+	nHigh   atomic.Int64
+	nTransp atomic.Int64
+	nAnonX  atomic.Int64
+	nV4     atomic.Int64
+	nV6     atomic.Int64
+
 	cancelOnce sync.Once
 	cancelCh   chan struct{}
 
@@ -102,6 +130,7 @@ type massStatusJSON struct {
 	Source      string  `json:"source"`
 	Total       int64   `json:"total"`
 	Tested      int64   `json:"tested"`
+	Remaining   int64   `json:"remaining"`
 	Pct         float64 `json:"pct"`
 	HTTP        int64   `json:"http"`
 	Socks4      int64   `json:"socks4"`
@@ -112,6 +141,22 @@ type massStatusJSON struct {
 	Filtered    int64   `json:"filtered"`
 	CPM         int64   `json:"cpm"`
 	ETA         string  `json:"eta"`
+	ElapsedS    int     `json:"elapsed_s"`
+	Elapsed     string  `json:"elapsed"`
+	ActiveHTTP  int64   `json:"active_http"`
+	ActiveS4    int64   `json:"active_socks4"`
+	ActiveS5    int64   `json:"active_socks5"`
+	Elite       int64   `json:"elite"`
+	High        int64   `json:"high"`
+	Transparent int64   `json:"transparent"`
+	AnonUnknown int64   `json:"anon_unknown"`
+	V4          int64   `json:"v4"`
+	V6          int64   `json:"v6"`
+	Site        string  `json:"site"`
+	SuccessKey  string  `json:"success_key"`
+	Anon        bool    `json:"anon"`
+	Parallel    bool    `json:"parallel"`
+	GeoMMDB     string  `json:"geo_mmdb,omitempty"`
 	Judge       string  `json:"judge"`
 	Country     string  `json:"country"`
 	Geo         bool    `json:"geo"`
@@ -162,28 +207,69 @@ func nombrePaisArchivo(pais string) string {
 	return s
 }
 
-// normalizeCountryInput: diccionario fuzzy EN->ES estilo Espectro
-// (usa "brazil" -> "brasil", ISO cortos -> nombre en espanol).
-func normalizeCountryInput(input string) string {
-	input = strings.ToLower(strings.TrimSpace(input))
-	dict := map[string]string{
-		"brazil": "brasil", "br": "brasil",
-		"united states": "estados unidos", "usa": "estados unidos", "us": "estados unidos",
-		"spain": "españa", "es": "españa",
-		"germany": "alemania", "de": "alemania",
-		"france": "francia", "fr": "francia",
-		"japan": "japón", "jp": "japón",
-		"uk": "reino unido", "united kingdom": "reino unido", "england": "reino unido", "gb": "reino unido",
-		"mexico": "méxico", "mx": "méxico",
-		"colombia": "colombia", "co": "colombia",
-		"argentina": "argentina", "ar": "argentina",
-		"peru": "perú", "pe": "perú",
-		"chile": "chile", "cl": "chile",
+// countryAlias: equivalencias entre codigo ISO, ingles y espanol -> forma
+// canonica en INGLES. Permite que el filtro de pais funcione escriba el
+// usuario "brasil", "brazil" o "br".
+var countryAlias = map[string]string{
+	"brasil": "brazil", "br": "brazil",
+	"españa": "spain", "espana": "spain", "es": "spain",
+	"estados unidos": "united states", "eeuu": "united states", "ee.uu.": "united states",
+	"usa": "united states", "us": "united states", "united states of america": "united states",
+	"reino unido": "united kingdom", "uk": "united kingdom", "gb": "united kingdom",
+	"england": "united kingdom", "gran bretaña": "united kingdom",
+	"alemania": "germany", "de": "germany",
+	"francia": "france", "fr": "france",
+	"japón": "japan", "japon": "japan", "jp": "japan",
+	"méxico": "mexico", "mexico": "mexico", "mx": "mexico",
+	"perú": "peru", "peru": "peru", "pe": "peru",
+	"chile": "chile", "cl": "chile",
+	"argentina": "argentina", "ar": "argentina",
+	"colombia": "colombia", "co": "colombia",
+	"venezuela": "venezuela", "ve": "venezuela",
+	"holanda": "netherlands", "países bajos": "netherlands", "paises bajos": "netherlands", "nl": "netherlands",
+	"rusia": "russia", "ru": "russia",
+	"china": "china", "cn": "china",
+	"corea del sur": "south korea", "kr": "south korea",
+	"india": "india", "in": "india",
+	"italia": "italy", "it": "italy",
+	"canadá": "canada", "canada": "canada", "ca": "canada",
+	"suecia": "sweden", "se": "sweden",
+	"turquía": "turkey", "turquia": "turkey", "tr": "turkey",
+	"indonesia": "indonesia", "id": "indonesia",
+	"vietnam": "vietnam", "vn": "vietnam",
+	"tailandia": "thailand", "th": "thailand",
+}
+
+// canonicalCountry normaliza un pais (nombre o ISO, en espanol o ingles) a
+// una forma unica en minusculas para comparar filtros.
+func canonicalCountry(input string) string {
+	s := strings.ToLower(strings.TrimSpace(input))
+	if s == "" {
+		return ""
 	}
-	if v, ok := dict[input]; ok {
+	if v, ok := countryAlias[s]; ok {
 		return v
 	}
-	return input
+	return s
+}
+
+// countryMatches: filtro de pais tolerante. Acepta ISO ("br"), ingles
+// ("brazil") y espanol ("brasil"), y tambien nombres oficiales largos de
+// algunas bases ("United Kingdom of Great Britain...") porque compara por
+// subcadena.
+func countryMatches(want, country, iso string) bool {
+	w := canonicalCountry(want)
+	if w == "" {
+		return true
+	}
+	if iso != "" && canonicalCountry(iso) == w {
+		return true
+	}
+	have := canonicalCountry(country)
+	if have == "" {
+		return false
+	}
+	return have == w || strings.Contains(have, w) || strings.Contains(w, have)
 }
 
 // massJudge: juez efectivo del job. custom tiene prioridad (permite juez
@@ -229,22 +315,54 @@ func dynamicTimeout(judge string) (int, int) {
 }
 
 // anonLevel clasifica el anonimato leyendo el cuerpo del juez (logica
-// azenv/Espectro: REQUEST_METHOD/HTTP_* indican que el juez ve el request).
+// azenv/Proxy Checker): si el juez ve nuesttra cabecera, el proxy no es
+// anonimo. Niveles como el checker de referencia:
+//
+//	Elite       -> el juez no ve NADA (ni XFF ni VIA)
+//	High        -> el juez ve que hay un proxy (VIA/FORWARDED) pero no tu IP
+//	Transparent -> el juez ve tu IP real (X-Forwarded-For / Client-IP)
+//	Unknown     -> el juez no devolvio un eco de cabeceras (pagina normal)
 func anonLevel(scheme, body string) string {
-	if strings.Contains(body, "REQUEST_METHOD") || strings.Contains(body, "HTTP_") ||
-		strings.Contains(body, "REMOTE_ADDR") {
-		if !strings.Contains(body, "HTTP_X_FORWARDED_FOR") && !strings.Contains(body, "HTTP_VIA") {
-			return "Elite"
+	up := strings.ToUpper(body)
+	espejo := strings.Contains(up, "REQUEST_METHOD") || strings.Contains(up, "HTTP_") ||
+		strings.Contains(up, "REMOTE_ADDR")
+	if espejo {
+		ipExpuesta := strings.Contains(up, "HTTP_X_FORWARDED_FOR") ||
+			strings.Contains(up, "HTTP_CLIENT_IP") || strings.Contains(up, "HTTP_X_REAL_IP") ||
+			strings.Contains(up, "HTTP_FORWARDED_FOR") || strings.Contains(up, "HTTP_X_CLIENT_IP")
+		if ipExpuesta {
+			return "Transparent"
 		}
-		if !strings.Contains(body, "HTTP_X_FORWARDED_FOR") {
-			return "Anonymous"
+		proxyVisible := strings.Contains(up, "HTTP_VIA") || strings.Contains(up, "PROXY_CONNECTION") ||
+			strings.Contains(up, "HTTP_FORWARDED") || strings.Contains(up, "HTTP_X_PROXY_ID") ||
+			strings.Contains(up, "HTTP_PROXY_AUTHORIZATION") || strings.Contains(up, "HTTP_X_FORWARDED")
+		if proxyVisible {
+			return "High"
 		}
-		return "Transparent"
+		return "Elite"
 	}
+	// sin eco del juez: un SOCKS no anade cabeceras HTTP -> Elite; un HTTP
+	// puede estar devolviendo una pagina cacheada/suplantada.
 	if scheme == "http" {
 		return "Unknown"
 	}
 	return "Elite"
+}
+
+// normalizeAnon: valores heredados (Espectro/versiones previas) -> niveles
+// actuales.
+func normalizeAnon(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "anonymous":
+		return "High"
+	case "elite":
+		return "Elite"
+	case "high":
+		return "High"
+	case "transparent":
+		return "Transparent"
+	}
+	return s
 }
 
 // parseMassLine convierte una linea en massItem. Lineas con esquema
@@ -332,37 +450,190 @@ func net_JoinHostPortStr(host string, port int) string {
 	return host + ":" + strconv.Itoa(port)
 }
 
-// massProbe intenta el proxy contra el juez. Si la linea tenia esquema
-// explicito prueba solo ese; si no, cascada SOCKS5 -> SOCKS4 -> HTTP.
-// Devuelve protocolo vivo ("" = muerto), ping, pais (si geo) y anonimato.
-func massProbe(it *massItem, judge string, timeout time.Duration, geo bool) (string, int, string, string) {
-	schemes := []string{"socks5", "socks4", "http"}
+// massProbeRes: resultado de sondear un proxy.
+type massProbeRes struct {
+	proto   string
+	ping    int
+	country string
+	iso     string
+	anon    string
+	code    int    // ultimo codigo HTTP visto (diagnostico)
+	body    string // cuerpo de la respuesta (anonimato/GeoIP)
+}
+
+// schemesFor: protocolos a probar. Un esquema explicito en la linea manda;
+// una linea "bare" (ip:puerto) se prueba en cascada SOCKS5 -> SOCKS4 -> HTTP.
+func schemesFor(it *massItem) []string {
 	if it.explicit != "" {
-		schemes = []string{it.explicit}
+		return []string{it.explicit}
 	}
-	maxBody := 0
+	return []string{"socks5", "socks4", "http"}
+}
+
+func (it *massItem) proxy(scheme string) *Proxy {
+	return &Proxy{Scheme: scheme, Host: it.host, Port: it.port, User: it.user, Password: it.pass}
+}
+
+// actBegin/actEnd: actividad en vivo por protocolo (panel "Thread State").
+func (j *massJob) actBegin(scheme string) {
+	switch scheme {
+	case "http":
+		j.actHTTP.Add(1)
+	case "socks4", "socks4a":
+		j.actS4.Add(1)
+	case "socks5":
+		j.actS5.Add(1)
+	}
+}
+
+func (j *massJob) actEnd(scheme string) {
+	switch scheme {
+	case "http":
+		j.actHTTP.Add(-1)
+	case "socks4", "socks4a":
+		j.actS4.Add(-1)
+	case "socks5":
+		j.actS5.Add(-1)
+	}
+}
+
+// massProbe (compat): cascada secuencial contra un juez, sin Site ni Success
+// Key (comportamiento historico: cuerpo solo si se pide GeoIP y anonimato
+// siempre clasificado).
+func massProbe(it *massItem, judge string, timeout time.Duration, geo bool) (string, int, string, string) {
+	j := &massJob{site: judge, judge: judge, siteIsJudge: true, geo: geo}
+	r := j.probe(it, timeout, geo)
 	if geo {
-		maxBody = massBodyGeo
+		r.country = extractCountry(r.body)
 	}
+	if r.anon == "" {
+		r.anon = normalizeAnon(anonLevel(r.proto, r.body))
+	}
+	return r.proto, r.ping, r.country, r.anon
+}
+
+// probe valida el proxy contra el Site del job (con Success Key si la hay)
+// probando los protocolos en cascada. Devuelve el primer protocolo vivo.
+// wantBody pide el cuerpo de la respuesta (se necesita para clasificar
+// anonimato/pais desde el juez en la misma peticion).
+func (j *massJob) probe(it *massItem, timeout time.Duration, wantBody bool) massProbeRes {
+	schemes := schemesFor(it)
+	sp := checkSpec{url: j.site, timeout: timeout, successKey: j.successKey}
+	if wantBody && strings.TrimSpace(j.successKey) == "" {
+		sp.maxBody = massBodyGeo
+	}
+	if j.parallel && len(schemes) > 1 {
+		return j.probeParallel(it, schemes, sp)
+	}
+	res := massProbeRes{}
 	for _, s := range schemes {
-		tp := &Proxy{Scheme: s, Host: it.host, Port: it.port, User: it.user, Password: it.pass}
-		ok, ping, body := healthCheckBody(tp, judge, timeout, maxBody, false)
+		j.actBegin(s)
+		ok, ping, body, code := healthCheckSpec(it.proxy(s), sp)
+		j.actEnd(s)
 		if ok {
-			country := ""
-			if geo {
-				country = extractCountry(body)
-			}
-			return s, ping, country, anonLevel(s, body)
+			res.proto, res.ping, res.body, res.code = s, ping, body, code
+			return res
+		}
+		if code != 0 {
+			res.code = code
 		}
 	}
-	return "", 0, "", ""
+	return res
+}
+
+// probeParallel: cascada EN PARALELO (los 3 protocolos a la vez). Un proxy
+// muerto cuesta 1 timeout en vez de 3 -> hasta 3x mas CPM, que es como
+// trabaja el checker de referencia (un pool por tipo). Gana el vivo con
+// menor ping (empate: el orden socks5 > socks4 > http).
+func (j *massJob) probeParallel(it *massItem, schemes []string, sp checkSpec) massProbeRes {
+	type out struct {
+		res massProbeRes
+		ok  bool
+	}
+	ch := make(chan out, len(schemes))
+	for _, s := range schemes {
+		go func(s string) {
+			j.actBegin(s)
+			defer j.actEnd(s)
+			ok, ping, body, code := healthCheckSpec(it.proxy(s), sp)
+			ch <- out{ok: ok, res: massProbeRes{proto: s, ping: ping, body: body, code: code}}
+		}(s)
+	}
+	best := massProbeRes{}
+	bestPing := 0
+	code := 0
+	for range schemes {
+		o := <-ch
+		if o.res.code != 0 {
+			code = o.res.code
+		}
+		if !o.ok {
+			continue
+		}
+		if best.proto == "" || (o.res.ping > 0 && (bestPing == 0 || o.res.ping < bestPing)) {
+			best, bestPing = o.res, o.res.ping
+		}
+	}
+	if best.proto == "" {
+		best.code = code
+	}
+	return best
+}
+
+// classify completa pais y anonimato de un VIVO (los muertos no pagan
+// peticiones extra): pais desde la base mmdb local (sin red); anonimato
+// desde el juez, reutilizando el cuerpo ya leido cuando el juez ES el site
+// (caso por defecto: 1 sola peticion por proxy).
+func (j *massJob) classify(it *massItem, res *massProbeRes, timeout time.Duration) {
+	if j.geoDB != nil {
+		rec := j.geoDB.countryRecIP(it.host)
+		res.country, res.iso = rec.Name, rec.ISO
+	}
+	if res.country == "" && j.geoDB == nil && j.siteIsJudge {
+		res.country = extractCountry(res.body)
+	}
+	// Sin base mmdb y sin pais del juez: consulta de respaldo a ip-api, SOLO
+	// para este vivo (los muertos no gastan cuota).
+	if j.geo && j.geoDB == nil && res.country == "" {
+		sp := checkSpec{url: geoCountryURL, timeout: timeout, maxBody: massBodyGeo}
+		if ok, _, body, _ := healthCheckSpec(it.proxy(res.proto), sp); ok {
+			res.country = extractCountry(body)
+		}
+	}
+	// El anonimato del juez-eco es GRATIS si el cuerpo ya esta leido (el site
+	// ES el juez): se clasifica siempre, como el checker de referencia.
+	if j.siteIsJudge && res.body != "" {
+		res.anon = normalizeAnon(anonLevel(res.proto, res.body))
+		return
+	}
+	if j.anonURL == "" {
+		return
+	}
+	// peticion extra al juez (solo vivos, y solo si el site no era el juez)
+	sp := checkSpec{url: j.anonURL, timeout: timeout, maxBody: massBodyGeo}
+	ok, _, body, _ := healthCheckSpec(it.proxy(res.proto), sp)
+	if !ok {
+		// El juez no respondio: no se pudo clasificar. Se marca Unknown para
+		// que el panel muestre un valor (y no un hueco) como el checker de
+		// referencia; el contador lo cuenta igual como no clasificado.
+		res.anon = "Unknown"
+		return
+	}
+	res.anon = normalizeAnon(anonLevel(res.proto, body))
+	if res.country == "" && j.geoDB == nil {
+		res.country = extractCountry(body)
+	}
 }
 
 // ============================ ciclo de vida ============================
 
 type massCfg struct {
 	path, text, name string
-	judge            string
+	site             string // URL de validacion (Site); "" = el juez
+	successKey       string // texto exigido en el cuerpo de la respuesta
+	judge            string // URL del juez (anonimato); "" = azenv.net
+	anon             bool   // clasificar anonimato (Elite/High/Transparent)
+	parallel         bool   // cascada en paralelo (mas CPM)
 	country          string
 	geo              bool
 	retries          int
@@ -407,11 +678,37 @@ func (a *App) massStart(cfg massCfg) (*massJob, error) {
 	}
 
 	geo := cfg.geo || strings.TrimSpace(cfg.country) != ""
-	judge := massJudge(cfg.judge, geo)
+	// Juez de anonimato: el indicado o azenv.net (el unico tipo de juez que
+	// devuelve el eco de cabeceras necesario para clasificar).
+	anonURL := ""
+	if cfg.anon {
+		anonURL = strings.TrimSpace(cfg.judge)
+		if anonURL == "" {
+			anonURL = "http://azenv.net/"
+		}
+	}
+	// Site de validacion: el indicado (con Success Key si la hay) o el juez.
+	// Validar contra el juez permite 1 sola peticion por proxy. El site NO se
+	// elige por GeoIP: validar contra ip-api agotaba su limite de tasa.
+	site := strings.TrimSpace(cfg.site)
+	siteIsJudge := site == "" // sin Site explicito se valida contra un juez
+	var judgeEff string
+	switch {
+	case anonURL != "":
+		judgeEff = anonURL
+		if site == "" {
+			site = anonURL
+		}
+	case site != "":
+		judgeEff = site
+	default:
+		site = massJudge(cfg.judge, false)
+		judgeEff = site
+	}
 	timeoutMs := cfg.timeoutMs
 	dynPing := 0
 	if timeoutMs <= 0 {
-		dynPing, timeoutMs = dynamicTimeout(judge)
+		dynPing, timeoutMs = dynamicTimeout(site)
 	}
 	threads := cfg.threads
 	if threads <= 0 {
@@ -434,19 +731,25 @@ func (a *App) massStart(cfg massCfg) (*massJob, error) {
 	}
 
 	j := &massJob{
-		judge:     judge,
-		country:   strings.ToLower(strings.TrimSpace(cfg.country)),
-		geo:       geo,
-		retries:   retries,
-		timeoutMs: timeoutMs,
-		threads:   threads,
-		source:    src,
-		webhook:   "webhook.txt",
-		outBase:   a.outBaseDir(),
-		start:     time.Now(),
-		running:   true,
-		cancelCh:  make(chan struct{}),
-		dynPing:   dynPing,
+		site:        site,
+		successKey:  strings.TrimSpace(cfg.successKey),
+		siteIsJudge: siteIsJudge,
+		judge:       judgeEff,
+		anonURL:     anonURL,
+		parallel:    cfg.parallel,
+		geoDB:       a.geoDB,
+		country:     strings.ToLower(strings.TrimSpace(cfg.country)),
+		geo:         geo,
+		retries:     retries,
+		timeoutMs:   timeoutMs,
+		threads:     threads,
+		source:      src,
+		webhook:     "webhook.txt",
+		outBase:     a.outBaseDir(),
+		start:       time.Now(),
+		running:     true,
+		cancelCh:    make(chan struct{}),
+		dynPing:     dynPing,
 	}
 	// chequeo y alta en UNA sola seccion critica: con el patron
 	// check-then-act dos /checker/start concurrentes pasaban ambos el
@@ -458,8 +761,8 @@ func (a *App) massStart(cfg massCfg) (*massJob, error) {
 	}
 	a.mass = j
 	a.massMu.Unlock()
-	a.logf("checker masivo iniciado: fuente=%s threads=%d timeout=%dms reintentos=%d geo=%v pais=%q",
-		src, threads, timeoutMs, retries, geo, cfg.country)
+	a.logf("checker masivo iniciado: fuente=%s threads=%d timeout=%dms reintentos=%d geo=%v pais=%q site=%s key=%q anon=%v paralelo=%v",
+		src, threads, timeoutMs, retries, geo, cfg.country, site, cfg.successKey, anonURL != "", cfg.parallel)
 	go a.massRun(j, cfg)
 	return j, nil
 }
@@ -628,32 +931,36 @@ func isLocalLine(s string) bool {
 		strings.HasPrefix(s, "10.") || strings.HasPrefix(s, "localhost")
 }
 
-// massCheckOne: cascada + reintentos + filtro de pais + guardar hit.
+// massCheckOne: cascada + reintentos + clasificacion + filtro de pais + hit.
 func (a *App) massCheckOne(j *massJob, it *massItem) {
 	timeout := time.Duration(j.timeoutMs) * time.Millisecond
-	var proto, country, anon string
-	ping := 0
+	// El cuerpo solo hace falta si vamos a clasificar con el juez en la
+	// misma peticion (juez == site): anonimato, o pais cuando no hay base
+	// mmdb. Si no, la validacion va sin leer cuerpo (mas rapida).
+	wantBody := j.siteIsJudge && (j.anonURL != "" || (j.geo && j.geoDB == nil))
+	var res massProbeRes
 	for attempt := 0; attempt <= j.retries; attempt++ {
-		proto, ping, country, anon = massProbe(it, j.judge, timeout, j.geo)
-		if proto != "" {
+		res = j.probe(it, timeout, wantBody)
+		if res.proto != "" {
 			break
 		}
 		if attempt < j.retries {
 			j.usedRetries.Add(1)
 		}
 	}
-	if proto == "" {
+	if res.proto == "" {
 		j.bad.Add(1)
 		j.tested.Add(1)
 		return
 	}
-	if j.country != "" && !strings.EqualFold(country, j.country) {
+	j.classify(it, &res, timeout)
+	if j.country != "" && !countryMatches(j.country, res.country, res.iso) {
 		// descarte silencioso estilo Espectro: no suma vivos ni muertos
 		j.filtered.Add(1)
 		j.tested.Add(1)
 		return
 	}
-	switch proto {
+	switch res.proto {
 	case "http":
 		j.nHTTP.Add(1)
 	case "socks4", "socks4a":
@@ -661,7 +968,24 @@ func (a *App) massCheckOne(j *massJob, it *massItem) {
 	case "socks5":
 		j.nS5.Add(1)
 	}
-	j.addHit(massHit{Line: it.plain, Proto: proto, Ping: ping, Anon: anon, Country: country})
+	switch res.anon {
+	case "Elite":
+		j.nElite.Add(1)
+	case "High":
+		j.nHigh.Add(1)
+	case "Transparent":
+		j.nTransp.Add(1)
+	default:
+		j.nAnonX.Add(1)
+	}
+	if strings.Contains(it.host, ":") {
+		j.nV6.Add(1)
+	} else {
+		j.nV4.Add(1)
+	}
+	j.addHit(massHit{Line: it.plain, Proto: res.proto, Ping: res.ping,
+		Anon: res.anon, Country: res.country, ISO: res.iso,
+		IP6: strings.Contains(it.host, ":")})
 	j.tested.Add(1)
 }
 
@@ -799,29 +1123,53 @@ func (j *massJob) finish(a *App) {
 
 func (j *massJob) reportBytes() []byte {
 	tested := j.tested.Load()
-	elapsed := time.Since(j.start).Minutes()
+	j.mu.Lock()
+	start, end := j.start, j.end
+	j.mu.Unlock()
+	elapsed := time.Since(start)
+	if !end.IsZero() {
+		elapsed = end.Sub(start)
+	}
 	cpm := int64(0)
-	if elapsed > 0 {
-		cpm = int64(float64(tested) / elapsed)
+	if m := elapsed.Minutes(); m > 0 {
+		cpm = int64(float64(tested) / m)
 	}
 	j.mu.Lock()
 	report := map[string]interface{}{
 		"TotalEvaluados": tested,
+		"Restantes":      j.total.Load() - tested,
 		"Vivos": map[string]int64{
 			"HTTP": j.nHTTP.Load(), "SOCKS4": j.nS4.Load(), "SOCKS5": j.nS5.Load(),
 			"Total": j.nHTTP.Load() + j.nS4.Load() + j.nS5.Load(),
 		},
-		"Muertos":   j.bad.Load(),
-		"CPM":       cpm,
-		"Fecha":     time.Now().Format("2006-01-02 15:04:05"),
-		"Juez":      j.judge,
-		"Filtrados": j.filtered.Load(),
-		"Cancelado": j.cancelled,
-		"Fuente":    j.source,
+		"Anonimato": map[string]int64{
+			"Elite": j.nElite.Load(), "High": j.nHigh.Load(),
+			"Transparent": j.nTransp.Load(), "Desconocido": j.nAnonX.Load(),
+		},
+		"IP":         map[string]int64{"IPv4": j.nV4.Load(), "IPv6": j.nV6.Load()},
+		"Muertos":    j.bad.Load(),
+		"Reintentos": j.usedRetries.Load(),
+		"CPM":        cpm,
+		"Tiempo":     formatDuracion(elapsed),
+		"Fecha":      time.Now().Format("2006-01-02 15:04:05"),
+		"Site":       j.site,
+		"SuccessKey": j.successKey,
+		"Juez":       j.judge,
+		"GeoMMDB":    geoInfo(j.geoDB),
+		"Filtrados":  j.filtered.Load(),
+		"Cancelado":  j.cancelled,
+		"Fuente":     j.source,
 	}
 	j.mu.Unlock()
 	b, _ := json.MarshalIndent(report, "", "  ")
 	return b
+}
+
+func geoInfo(g *geoDB) string {
+	if g == nil {
+		return ""
+	}
+	return g.info()
 }
 
 func (j *massJob) writeReport() {
@@ -876,12 +1224,19 @@ func (a *App) massCurrent() *massJob {
 func (j *massJob) statusJSON() massStatusJSON {
 	st := massStatusJSON{
 		Judge:       j.judge,
+		Site:        j.site,
+		SuccessKey:  j.successKey,
+		Anon:        j.anonURL != "",
+		Parallel:    j.parallel,
 		Country:     j.country,
 		Geo:         j.geo,
 		RetriesCfg:  j.retries,
 		TimeoutMs:   j.timeoutMs,
 		DynamicPing: j.dynPing,
 		Threads:     j.threads,
+	}
+	if j.geoDB != nil {
+		st.GeoMMDB = j.geoDB.info()
 	}
 	j.mu.Lock()
 	st.Running = j.running
@@ -907,23 +1262,63 @@ func (j *massJob) statusJSON() massStatusJSON {
 	st.Bad = j.bad.Load()
 	st.Retries = j.usedRetries.Load()
 	st.Filtered = j.filtered.Load()
+	st.ActiveHTTP = j.actHTTP.Load()
+	st.ActiveS4 = j.actS4.Load()
+	st.ActiveS5 = j.actS5.Load()
+	st.Elite = j.nElite.Load()
+	st.High = j.nHigh.Load()
+	st.Transparent = j.nTransp.Load()
+	st.AnonUnknown = j.nAnonX.Load()
+	st.V4 = j.nV4.Load()
+	st.V6 = j.nV6.Load()
 	st.Alive = st.HTTP + st.Socks4 + st.Socks5
+	if st.Total > st.Tested {
+		st.Remaining = st.Total - st.Tested
+	}
 	if st.Total > 0 {
 		st.Pct = float64(st.Tested) / float64(st.Total) * 100
 		if st.Pct > 100 {
 			st.Pct = 100
 		}
 	}
-	elapsed := time.Since(j.start).Minutes()
-	if elapsed > 0 {
-		st.CPM = int64(float64(st.Tested) / elapsed)
+	// Reloj estilo Proxy Checker: tiempo transcurrido desde el arranque del
+	// job (se congela al terminar). El CPM se calcula sobre ese mismo tiempo.
+	elapsed := time.Since(j.start)
+	if st.Done && !j.end.IsZero() {
+		elapsed = j.end.Sub(j.start)
+	}
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	st.ElapsedS = int(elapsed.Seconds())
+	st.Elapsed = formatDuracion(elapsed)
+	minutes := elapsed.Minutes()
+	if minutes > 0 {
+		st.CPM = int64(float64(st.Tested) / minutes)
 	}
 	if st.CPM > 0 && st.Total > st.Tested {
-		st.ETA = fmt.Sprintf("%.1fm", float64(st.Total-st.Tested)/float64(st.CPM))
+		st.ETA = formatDuracion(time.Duration(float64(st.Total-st.Tested) / float64(st.CPM) * float64(time.Minute)))
 	} else {
-		st.ETA = "0m"
+		st.ETA = "0s"
 	}
 	return st
+}
+
+// formatDuracion: "1h02m03s" / "2m03s" / "7s" (estilo panel del checker).
+func formatDuracion(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	s := int(d.Seconds())
+	h, m, sec := s/3600, (s%3600)/60, s%60
+	switch {
+	case h > 0:
+		return fmt.Sprintf("%dh%02dm%02ds", h, m, sec)
+	case m > 0:
+		return fmt.Sprintf("%dm%02ds", m, sec)
+	default:
+		return fmt.Sprintf("%ds", sec)
+	}
 }
 
 func (a *App) massStatusJSON() massStatusJSON {
@@ -1052,16 +1447,20 @@ func (a *App) registerChecker(mux *http.ServeMux) {
 			return
 		}
 		var req struct {
-			Path      string `json:"path"`
-			Text      string `json:"text"`
-			Name      string `json:"name"`
-			Judge     string `json:"judge"`
-			Country   string `json:"country"`
-			Geo       bool   `json:"geo"`
-			Retries   int    `json:"retries"`
-			Timeout   int    `json:"timeout"` // ms; 0 = dinamico
-			Threads   int    `json:"threads"` // 0 = autopilot
-			SkipLocal *bool  `json:"skip_local"`
+			Path       string `json:"path"`
+			Text       string `json:"text"`
+			Name       string `json:"name"`
+			Site       string `json:"site"`
+			SuccessKey string `json:"success_key"`
+			Judge      string `json:"judge"`
+			Country    string `json:"country"`
+			Geo        bool   `json:"geo"`
+			Anon       *bool  `json:"anon"`
+			Parallel   *bool  `json:"parallel"`
+			Retries    int    `json:"retries"`
+			Timeout    int    `json:"timeout"` // ms; 0 = dinamico
+			Threads    int    `json:"threads"` // 0 = autopilot
+			SkipLocal  *bool  `json:"skip_local"`
 		}
 		body, err := io.ReadAll(io.LimitReader(r.Body, massMaxText))
 		if err != nil {
@@ -1080,17 +1479,29 @@ func (a *App) registerChecker(mux *http.ServeMux) {
 		if req.SkipLocal != nil {
 			skipLocal = *req.SkipLocal
 		}
+		anon := true
+		if req.Anon != nil {
+			anon = *req.Anon
+		}
+		parallel := true
+		if req.Parallel != nil {
+			parallel = *req.Parallel
+		}
 		cfg := massCfg{
-			path:      strings.TrimSpace(req.Path),
-			text:      req.Text,
-			name:      strings.TrimSpace(req.Name),
-			judge:     req.Judge,
-			country:   req.Country,
-			geo:       req.Geo,
-			retries:   req.Retries,
-			timeoutMs: req.Timeout,
-			threads:   req.Threads,
-			skipLocal: skipLocal,
+			path:       strings.TrimSpace(req.Path),
+			text:       req.Text,
+			name:       strings.TrimSpace(req.Name),
+			site:       req.Site,
+			successKey: req.SuccessKey,
+			judge:      req.Judge,
+			anon:       anon,
+			parallel:   parallel,
+			country:    req.Country,
+			geo:        req.Geo,
+			retries:    req.Retries,
+			timeoutMs:  req.Timeout,
+			threads:    req.Threads,
+			skipLocal:  skipLocal,
 		}
 		j, err := a.massStart(cfg)
 		if err != nil {

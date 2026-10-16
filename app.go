@@ -92,7 +92,12 @@ type App struct {
 	checkTimeout time.Duration // timeout por intento de check
 	checkRetries int           // reintentos extra antes de marcar muerto (estilo Espectro)
 	checkConnect bool          // --check-connect: valida CONNECT (tunel) en vez de GET
+	checkKey     string        // --success-key: exige este texto en el cuerpo (validacion de contenido)
 	checkAll     bool          // auto-loop revisa tambien muertos (default: solo vivos+sin verificar)
+	// GeoIP offline (geoip.go): base MaxMind DB local (GeoLite2/DbipLite
+	// Country). Si esta, el pais del checker masivo sale de aqui (sin
+	// llamadas al juez ni limites de tasa).
+	geoDB *geoDB
 	// Estado persistente (state.go): carga en arranque, guardado diferido.
 	stateFile     string                // ruta explicita o "" = <lista1>.state.json
 	stateDisabled bool                  // --no-state

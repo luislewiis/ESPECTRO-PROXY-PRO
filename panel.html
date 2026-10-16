@@ -570,18 +570,31 @@ td.ping{color:var(--faint);white-space:nowrap}
       </div>
 
       <div class="irow" style="margin-top:10px">
-        <input type="text" id="massJudge" placeholder="Juez personalizado (URL, opcional — default automático)">
+        <input type="text" id="massSite" placeholder="Site de validación (URL, opcional — ej. https://www.google.com/)">
+        <input type="text" id="massSuccessKey" placeholder="Success Key (ej. title>Google)" style="max-width:220px"
+          title="Texto que debe aparecer en la respuesta para dar el proxy por válido (validación de contenido real)">
+      </div>
+      <div class="irow" style="margin-top:6px">
+        <input type="text" id="massJudge" placeholder="Juez / Proxy Judge (ej. http://azenv.net/ — default automático)">
         <input type="text" id="massCountry" placeholder="País filtro (brasil, japan…)" style="max-width:200px">
       </div>
       <div class="irow" style="margin-top:6px">
-        <input type="number" id="massRetries" placeholder="Reintentos (0-5)" min="0" max="5" value="0"
+        <input type="number" id="massRetries" placeholder="Retry (0-5)" min="0" max="5" value="3"
           style="max-width:150px">
         <input type="number" id="massTimeout" placeholder="Timeout ms (0 = dinámico)" min="0" value="0"
           style="max-width:220px">
         <input type="number" id="massThreads" placeholder="Hilos (0 = autopilot)" min="0" value="0"
           style="max-width:220px">
         <label class="hint" style="display:flex;gap:6px;align-items:center">
-          <input type="checkbox" id="massGeo"> GeoIP por país
+          <input type="checkbox" id="massGeo" checked> GeoIP por país
+        </label>
+        <label class="hint" style="display:flex;gap:6px;align-items:center"
+          title="Clasifica Elite / High / Transparent consultando el Proxy Judge (solo a los vivos)">
+          <input type="checkbox" id="massAnon" checked> Anonimato
+        </label>
+        <label class="hint" style="display:flex;gap:6px;align-items:center"
+          title="Prueba SOCKS5, SOCKS4 y HTTP a la vez: un proxy muerto cuesta 1 timeout en vez de 3 (hasta 3x más CPM)">
+          <input type="checkbox" id="massParallel" checked> Paralelo (más CPM)
         </label>
         <label class="hint" style="display:flex;gap:6px;align-items:center">
           <input type="checkbox" id="massSkipLocal" checked> Ignorar locales
@@ -599,6 +612,26 @@ td.ping{color:var(--faint);white-space:nowrap}
       <div id="massProgress" hidden style="margin-top:10px">
         <div class="healthbar"><i id="massBar" style="width:0%"></i></div>
         <div class="hint" id="massStats" style="margin-top:6px">—</div>
+      </div>
+
+      <!-- estado en vivo estilo Proxy Checker: Valid/Invalid/Retry/Checked/
+           Remaining + Thread State por protocolo + anonimato + GeoIP -->
+      <div id="massState" hidden
+        style="margin-top:10px;border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:10px 12px;background:rgba(255,255,255,.02)">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 16px">
+          <div><div class="hint">Valid</div><div id="msValid">0</div></div>
+          <div><div class="hint">Invalid</div><div id="msInvalid">0</div></div>
+          <div><div class="hint">Retry</div><div id="msRetry">0</div></div>
+          <div><div class="hint">Checked</div><div id="msChecked">0/0</div></div>
+          <div><div class="hint">Remaining</div><div id="msRemaining">0</div></div>
+          <div><div class="hint">CPM</div><div id="msCPM2">0</div></div>
+          <div><div class="hint">Time Elapsed</div><div id="msElapsed">0s</div></div>
+          <div><div class="hint">Thread State</div><div id="msThreads">parado</div></div>
+          <div><div class="hint">Anonimato</div><div id="msAnon">—</div></div>
+          <div><div class="hint">IP</div><div id="msIP">—</div></div>
+          <div><div class="hint">GeoIP</div><div id="msGeo">—</div></div>
+          <div><div class="hint">Site</div><div id="msSite">—</div></div>
+        </div>
       </div>
 
       <div class="tablewrap" id="massHitsWrap" hidden style="margin-top:10px">
@@ -619,9 +652,9 @@ td.ping{color:var(--faint);white-space:nowrap}
         <table>
           <thead><tr>
             <th><input type="checkbox" id="massCkAll" title="Seleccionar todo"></th>
-            <th>Proxy</th><th>Protocolo</th><th>Ping</th><th>Anon</th><th>País</th><th></th>
+            <th>Proxy</th><th>Protocolo</th><th>IP</th><th>Timeout</th><th>Anonimato</th><th>País</th><th></th>
           </tr></thead>
-          <tbody id="massHitsBody"><tr class="emptyrow"><td colspan="7">sin datos todavía</td></tr></tbody>
+          <tbody id="massHitsBody"><tr class="emptyrow"><td colspan="8">sin datos todavía</td></tr></tbody>
         </table>
       </div>
       <div id="massCountries" class="hint" style="margin-top:8px"></div>
@@ -1501,9 +1534,13 @@ async function collectMassEntries(entries, out){
 async function startMass(){
   const mode = document.querySelector('#massSection .itab.active').dataset.mt;
   const payload = {
+    site: document.getElementById('massSite').value.trim(),
+    success_key: document.getElementById('massSuccessKey').value.trim(),
     judge: document.getElementById('massJudge').value.trim(),
     country: document.getElementById('massCountry').value.trim(),
     geo: document.getElementById('massGeo').checked,
+    anon: document.getElementById('massAnon').checked,
+    parallel: document.getElementById('massParallel').checked,
     retries: parseInt(document.getElementById('massRetries').value, 10) || 0,
     timeout: parseInt(document.getElementById('massTimeout').value, 10) || 0,
     threads: parseInt(document.getElementById('massThreads').value, 10) || 0,
@@ -1707,11 +1744,36 @@ function massFilterHits(proto){
   refreshMass();
 }
 
+// renderMassState: bloque de estado en vivo (estilo Proxy Checker by xRisky:
+// Valid/Invalid/Retry/Checked/Remaining, Thread State por protocolo,
+// anonimato, version de IP y base GeoIP). Todo con textContent: los valores
+// son numericos y URLs del job, y asi no hay inyeccion posible.
+function renderMassState(st){
+  const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+  if (!document.getElementById('massState')) return;
+  set('msValid', st.alive + (st.alive ? '  (http ' + st.http + ' · s4 ' + st.socks4 + ' · s5 ' + st.socks5 + ')' : ''));
+  set('msInvalid', String(st.bad));
+  set('msRetry', String(st.retries));
+  set('msChecked', st.tested + '/' + st.total + '  (' + (st.pct || 0).toFixed(1) + '%)');
+  set('msRemaining', String(st.remaining));
+  set('msCPM2', String(st.cpm));
+  set('msElapsed', st.elapsed || '0s');
+  set('msThreads', 'HTTP ' + (st.active_http || 0) + ' · Socks4 ' + (st.active_socks4 || 0) +
+    ' · Socks5 ' + (st.active_socks5 || 0) + '   [hilos ' + st.threads + ']' +
+    (st.running ? '' : '  parado'));
+  set('msAnon', 'elite ' + st.elite + ' · high ' + st.high + ' · transp ' + st.transparent +
+    (st.anon_unknown ? ' · ? ' + st.anon_unknown : '') + (st.anon ? '' : '  (off)'));
+  set('msIP', 'IPv4 ' + st.v4 + ' · IPv6 ' + st.v6);
+  set('msGeo', st.geo_mmdb ? ('mmdb: ' + st.geo_mmdb) : (st.geo ? 'juez (sin mmdb)' : 'off'));
+  const site = st.site || '—';
+  set('msSite', st.success_key ? (site + '  ·  key "' + st.success_key + '"') : site);
+}
+
 function renderMassHits(hits){
   const tb = document.getElementById('massHitsBody');
   massHitsCache = hits;
   if (!hits.length){
-    tb.innerHTML = '<tr class="emptyrow"><td colspan="7">sin vivos' +
+    tb.innerHTML = '<tr class="emptyrow"><td colspan="8">sin vivos' +
       (massHitsProto === 'all' ? '' : ' (' + massHitsProto + ')') + ' todavía</td></tr>';
     return;
   }
@@ -1720,9 +1782,10 @@ function renderMassHits(hits){
       <td class="ck"><input type="checkbox" class="mck" data-i="${i}" title="seleccionar"></td>
       <td class="mono">${esc(x.line)}</td>
       <td><span class="scheme ${esc(x.proto)}">${esc(x.proto)}</span></td>
+      <td>${x.ip6 ? 'IPv6' : 'IPv4'}</td>
       <td class="ping">${x.ping > 0 ? x.ping + ' ms' : '—'}</td>
       <td>${esc(x.anon || '—')}</td>
-      <td>${esc(x.country || '—')}</td>
+      <td>${esc(x.country || '—')}${x.iso && x.iso !== x.country ? ' <span class="hint">' + esc(x.iso) + '</span>' : ''}</td>
       <td><button class="xbtn" title="Quitar vivo" onclick="massRemoveLine(${i})">×</button></td>
     </tr>`).join('');
 }
@@ -1745,6 +1808,8 @@ async function refreshMass(){
     const started = st.running || st.done;
     massHasJob = started;
     document.getElementById('massProgress').hidden = !started;
+    const stateBox = document.getElementById('massState');
+    if (stateBox) stateBox.hidden = !started;
     document.getElementById('massHitsWrap').hidden = !started;
     document.getElementById('btnMassStart').disabled = !!st.running;
     document.getElementById('btnMassCancel').disabled = !st.running;
@@ -1761,9 +1826,10 @@ async function refreshMass(){
       ' · muertos ' + st.bad + (st.removed ? ' · borrados ' + st.removed : '') +
       (st.filtered ? ' · filtrados ' + st.filtered : '') +
       (st.retries ? ' · reintentos ' + st.retries : '') +
-      ' · ' + st.cpm + ' cpm · eta ' + st.eta +
+      ' · ' + st.cpm + ' cpm · ' + (st.elapsed || '0s') + ' · eta ' + st.eta +
       (st.dynamic_ping ? ' · juez ' + st.dynamic_ping + 'ms' : '') +
       (st.out_dir ? ' · <code>' + esc(st.out_dir) + '</code>' : '');
+    renderMassState(st);
     document.getElementById('massN').textContent = st.alive;
     document.getElementById('massCPM').textContent = st.cpm + ' cpm';
     document.getElementById('massETA').textContent = 'eta ' + st.eta;

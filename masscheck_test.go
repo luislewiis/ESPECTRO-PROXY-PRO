@@ -291,14 +291,43 @@ func TestExtractCountryYNormalize(t *testing.T) {
 	if got := extractCountry("sin pais aqui"); got != "" {
 		t.Errorf("extractCountry sin match = %q", got)
 	}
-	dict := map[string]string{"brazil": "brasil", "BR": "brasil", "japan": "japón", "us": "estados unidos"}
+	// El filtro de pais acepta ISO, ingles y espanol: todo se lleva a una
+	// forma canonica (minusculas, ingles) para comparar.
+	dict := map[string]string{
+		"brazil": "brazil", "BR": "brazil", "brasil": "brazil",
+		"japan": "japan", "japón": "japan", "jp": "japan",
+		"us": "united states", "usa": "united states", "estados unidos": "united states",
+		"uk": "united kingdom", "reino unido": "united kingdom", "united kingdom": "united kingdom",
+	}
 	for in, want := range dict {
-		if got := normalizeCountryInput(in); got != want {
-			t.Errorf("normalizeCountryInput(%q) = %q, esperaba %q", in, got, want)
+		if got := canonicalCountry(in); got != want {
+			t.Errorf("canonicalCountry(%q) = %q, esperaba %q", in, got, want)
 		}
 	}
-	if normalizeCountryInput("  BrAsIl ") != "brasil" {
-		t.Errorf("normalizeCountryInput debe recortar y pasar a minusculas")
+	if canonicalCountry("  BrAsIl ") != "brazil" {
+		t.Errorf("canonicalCountry debe recortar y pasar a minusculas")
+	}
+	if canonicalCountry("") != "" {
+		t.Errorf("canonicalCountry(\"\") debe ser vacio")
+	}
+	// chile por ISO, por nombre y con nombre oficial largo de DB-IP
+	if !countryMatches("cl", "Chile", "CL") {
+		t.Error("countryMatches(cl, Chile, CL) = false")
+	}
+	if !countryMatches("Reino Unido", "United Kingdom", "GB") {
+		t.Error("countryMatches(Reino Unido, United Kingdom, GB) = false")
+	}
+	if !countryMatches("united kingdom", "United Kingdom of Great Britain and Northern Ireland (the)", "GB") {
+		t.Error("countryMatches debe aceptar el nombre oficial largo")
+	}
+	if !countryMatches("br", "Brasil", "") {
+		t.Error("countryMatches(br, Brasil) = false")
+	}
+	if countryMatches("japan", "Brazil", "BR") {
+		t.Error("countryMatches(japan, Brazil, BR) debe ser false")
+	}
+	if !countryMatches("", "Brazil", "BR") {
+		t.Error("filtro vacio debe aceptar todo")
 	}
 }
 
@@ -313,8 +342,19 @@ func TestAnonLevel(t *testing.T) {
 	if got := anonLevel("http", "REQUEST_METHOD=GET HTTP_X_FORWARDED_FOR=9.9.9.9"); got != "Transparent" {
 		t.Errorf("http con XFF = %q, esperaba Transparent", got)
 	}
-	if got := anonLevel("http", "REQUEST_METHOD=GET HTTP_VIA=1.1 proxy"); got != "Anonymous" {
-		t.Errorf("http con VIA = %q, esperaba Anonymous", got)
+	if got := anonLevel("http", "REQUEST_METHOD=GET HTTP_VIA=1.1 proxy"); got != "High" {
+		t.Errorf("http con VIA = %q, esperaba High", got)
+	}
+	// cabeceras alternativas que tambien delatan al proxy
+	if got := anonLevel("http", "REQUEST_METHOD=GET HTTP_X_REAL_IP=9.9.9.9"); got != "Transparent" {
+		t.Errorf("http con X-Real-IP = %q, esperaba Transparent", got)
+	}
+	if got := anonLevel("http", "REQUEST_METHOD=GET PROXY_CONNECTION=keep-alive"); got != "High" {
+		t.Errorf("http con PROXY_CONNECTION = %q, esperaba High", got)
+	}
+	// valores heredados (versiones previas / Espectro) se normalizan
+	if normalizeAnon("Anonymous") != "High" || normalizeAnon("elite") != "Elite" {
+		t.Error("normalizeAnon no mapea los valores heredados")
 	}
 }
 

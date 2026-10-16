@@ -2,10 +2,13 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -133,6 +136,143 @@ func healthCheckBody(p *Proxy, testURL string, timeout time.Duration, maxBody in
 	return true, int(time.Since(start).Milliseconds()), readBodyLimited(br, maxBody)
 }
 
+// ==================== validacion de CONTENIDO (Site + Success Key) ====================
+// Estilo "Proxy Checker by xRisky": no basta con que el proxy devuelva una
+// linea HTTP (un portal cautivo, un 403 o una pagina de error pasan ese
+// filtro y luego NO sirven para navegar). Con un Site (URL) y una Success
+// Key (trozo de la respuesta esperada) se confirma que el proxy devuelve la
+// pagina REAL. Es la diferencia entre "puerto abierto" y "proxy usable".
+
+const deepBodyMax = 128 << 10 // tope de cuerpo leido en validacion de contenido
+
+// deepUserAgent: UA neutro de navegador (muchos sitios responden 403 a UAs
+// de bot y ese 403 no distingue proxy malo de proxy bueno).
+const deepUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+
+// checkSpec agrupa los parametros de un chequeo.
+//
+//	successKey == "" -> rama RAPIDA (dial + linea de estado, como siempre)
+//	successKey != "" -> rama CONTENIDO (peticion GET/HTTPS real por el proxy
+//	                    y comprobacion del cuerpo)
+type checkSpec struct {
+	url        string
+	timeout    time.Duration
+	connect    bool   // rama rapida: valida CONNECT en vez de GET
+	successKey string // substring exigido en el cuerpo ("" = sin validar contenido)
+	maxBody    int    // bytes de cuerpo a devolver en la rama rapida (0 = no leer)
+}
+
+// deepCheck hace una peticion HTTP(S) REAL a traves del proxy usando los
+// mismos primitivos de dial que el gateway (dialRaw/dialThrough + bufConn) y
+// devuelve (no407, ping, cuerpo recortado, codigo). net/http se encarga del
+// CONNECT+TLS para sitios https, del chunked y de los redirects (max 3).
+// Cada intento usa su propio Transport con keep-alive OFF: en un chequeo
+// masivo cada proxy se usa una vez y una cache de transports por proxy
+// (a.tp) creceria sin limite.
+func deepCheck(p *Proxy, sp checkSpec) (bool, int, string, int) {
+	timeout := sp.timeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	tr := &http.Transport{
+		DisableKeepAlives:     true,
+		DisableCompression:    true, // sin gzip: la Success Key se busca en texto plano
+		TLSHandshakeTimeout:   timeout,
+		ResponseHeaderTimeout: timeout,
+		ForceAttemptHTTP2:     false,
+		// Los proxies SSL-inspecting (y los tests con certificado propio)
+		// presentan un certificado que no valida contra las CA del sistema.
+		// Aqui NO se busca seguridad de transporte (la valida el navegador
+		// del usuario), se busca saber si el proxy DEVUELVE la pagina real:
+		// exigir una cadena valida descartaria proxies usables.
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	if p.Scheme == "http" {
+		pu := &url.URL{Scheme: "http", Host: p.Addr()}
+		if p.User != "" {
+			pu.User = url.UserPassword(p.User, p.Password)
+		}
+		tr.Proxy = http.ProxyURL(pu)
+		tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return dialRaw(addr, timeout)
+		}
+	} else {
+		// socks: net/http cree que habla directo con el destino; el tunel lo
+		// pone dialThrough. bufConn devuelve antes los bytes ya bufferizados
+		// por el handshake (respuestas tempranas del destino).
+		tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			c, br, err := dialThrough(p, addr, timeout)
+			if err != nil {
+				return nil, err
+			}
+			return &bufConn{Conn: c, r: br}, nil
+		}
+	}
+	defer tr.CloseIdleConnections()
+
+	req, err := http.NewRequest(http.MethodGet, sp.url, nil)
+	if err != nil {
+		return false, 0, "", 0
+	}
+	req.Header.Set("User-Agent", deepUserAgent)
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Connection", "close")
+
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   timeout, // cubre dial + handshake + headers + cuerpo
+		CheckRedirect: func(r *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return http.ErrUseLastResponse
+			}
+			return nil // sigue el redirect (http->https) pero sin bucle infinito
+		},
+	}
+	start := time.Now()
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, 0, "", 0
+	}
+	defer resp.Body.Close()
+	ping := int(time.Since(start).Milliseconds())
+
+	limit := sp.maxBody
+	if limit <= 0 {
+		limit = deepBodyMax
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, int64(limit)))
+	// 407 = el proxy pide credenciales que no tenemos: no es utilizable.
+	return resp.StatusCode != http.StatusProxyAuthRequired, ping, string(body), resp.StatusCode
+}
+
+// matchSuccessKey: comparacion case-insensitive y por subcadenas (la clave
+// se recorta: pegar " title>Google " no debe fallar).
+func matchSuccessKey(body, key string) bool {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(body), strings.ToLower(key))
+}
+
+// healthCheckSpec es el chequeo con Site + Success Key: la rama de contenido
+// exige que el proxy devuelva la pagina esperada; sin Success Key se mantiene
+// la rama rapida (compatibilidad y CPM alto).
+func healthCheckSpec(p *Proxy, sp checkSpec) (bool, int, string, int) {
+	if strings.TrimSpace(sp.successKey) != "" {
+		ok, ping, body, code := deepCheck(p, sp)
+		if !ok {
+			return false, 0, "", code
+		}
+		if !matchSuccessKey(body, sp.successKey) {
+			return false, 0, body, code
+		}
+		return true, ping, body, code
+	}
+	ok, ping, body := healthCheckBody(p, sp.url, sp.timeout, sp.maxBody, sp.connect)
+	return ok, ping, body, 0
+}
+
 // readBodyLimited consume los headers restantes (hasta la linea en blanco)
 // y devuelve hasta max bytes del body ("" si max <= 0). Las lineas de
 // cabecera van con tope: un proxy malicioso sin '\n' no debe inflar bufio
@@ -220,8 +360,14 @@ func (a *App) runChecksScope(scope string) {
 			// Reintentos estilo Espectro: un intento extra antes de dar por
 			// muerto (golpes de red no mueren proxies sanos).
 			ok, ping := false, 0
+			sp := checkSpec{
+				url:        a.testURL,
+				timeout:    timeout,
+				connect:    a.checkConnect,
+				successKey: a.checkKey,
+			}
 			for attempt := 0; attempt <= retries; attempt++ {
-				ok, ping = healthCheckFull(p, a.testURL, timeout, a.checkConnect)
+				ok, ping, _, _ = healthCheckSpec(p, sp)
 				if ok {
 					break
 				}

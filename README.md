@@ -40,6 +40,8 @@ compartida la consola no se toca y `--console` la mantiene visible.
 | `--no-state` | `false` | No persistir el estado de analisis (no crea `<lista>.state.json`) |
 | `--state-file` | *(auto)* | Ruta del archivo de estado (default: `<lista>.state.json` junto a la primera lista) |
 | `--test-url` | `http://api.ipify.org/` | URL de validación |
+| `--success-key` | *(vacío)* | Texto que **debe** aparecer en el cuerpo de la respuesta para dar el proxy por válido (validación de contenido real, estilo Proxy Checker). Ej.: `--test-url https://www.google.com/ --success-key "title>Google"` | 
+| `--geo-mmdb` | *(auto)* | Ruta a una base MaxMind DB de países (`GeoLite2-Country.mmdb` / `DbipLite-Country.mmdb`) para **GeoIP offline** sin límites de tasa. Vacío = autodetecta `*.mmdb` en el directorio actual |
 | `--api-token` | *(vacío)* | Token opcional para endpoints mutantes (header `X-API-Token`) |
 | `--allow-any-path` | `false` | Desactiva la jaula de rutas de `/validate` e `/import` |
 | `--idle-timeout` | `600` | Watchdog de inactividad en conexiones (0 = off) |
@@ -159,6 +161,75 @@ Lecturas: token solo si `--api-token` está configurado. Las descargas pasan por
 una **guarda SSRF** (solo `http`/`https`, hosts loopback/privados bloqueados,
 tope de 24 MB por descarga).
 
+## Checker Masivo (nivel Proxy Checker by xRisky)
+
+El checker valida **contenido real**, no solo que el proxy responda una línea
+HTTP: eso era lo que hacía que se colaran proxies que devuelven páginas de
+error del operador o del propia proxy.
+
+### Site + Success Key (validación de contenido)
+
+- **Site**: URL que se pide a través del proxy (ej. `https://www.google.com/`).
+- **Success Key**: texto que **debe** aparecer en la respuesta (ej. `title>Google`,
+  sin distinguir mayúsculas ni espacios sobrantes). Si no aparece, el proxy se
+  marca **muerto** aunque haya devuelto `200 OK`.
+- Sin Success Key se mantiene la **rama rápida** (cualquier respuesta válida
+  cuenta): ideal para chequear cientos de miles de líneas rápido.
+- Si no se indica Site, la validación se hace contra el **juez** (1 sola
+  petición por proxy).
+- Los proxies con inspección TLS (o certificados raros) **no** se descartan: el
+  checker no valida la cadena de certificados, valida el **contenido**.
+
+### Anonimato (Elite / High / Transparent)
+
+Solo se consulta a los **vivos** (los muertos no gastan peticiones):
+
+| Nivel | Significado |
+|---|---|
+| `Elite` | El juez no ve ni tu IP ni que hay un proxy |
+| `High` | El juez ve que hay un proxy (`Via`/`Forwarded`) pero no tu IP |
+| `Transparent` | El juez ve tu IP real (`X-Forwarded-For`/`Client-IP`) |
+| `Unknown` | El juez no devolvió un eco de cabeceras (no se pudo clasificar) |
+
+Si el Site **es** el juez (caso por defecto sin Site), el anonimato sale del
+mismo cuerpo ya leído: **1 petición por proxy**.
+
+### GeoIP offline (sin límites de tasa)
+
+- Lee `GeoLite2-Country.mmdb` / `DbipLite-Country.mmdb` con un **lector mmdb
+  propio** (sin dependencias): autodetecta `*.mmdb` en el directorio de trabajo
+  o se le indica con `--geo-mmdb "<ruta>"`.
+- Sin base mmdb, el país se pide al juez solo para los vivos (ip-api, ~45/min).
+- El país se muestra en **inglés** (como GeoLite2/xRisky) + ISO, y el filtro es
+  **tolerante**: acepta nombre en inglés, en español o el ISO (`brasil`, `BR`,
+  `brazil`, `reino unido`, `GB`, `united kingdom`...), incluso el nombre oficial
+  largo de DB-IP.
+
+### Cascada en paralelo (Parallel)
+
+Prueba SOCKS5, SOCKS4 y HTTP **a la vez**: un proxy muerto cuesta **1 timeout**
+en vez de 3 (hasta ~3x más CPM). Gana el vivo de menor latencia. Se puede
+desactivar para cascada secuencial clásica.
+
+### Estado en vivo (estilo xRisky)
+
+El panel muestra `Valid / Invalid / Retry / Checked / Remaining / CPM /
+Time Elapsed`, el `Thread State` por protocolo (HTTP · Socks4 · Socks5 activos),
+el reparto de anonimato, IPv4/IPv6, la base GeoIP en uso, el Site y la Success
+Key. La tabla de vivos añade columna de **IP** (IPv4/IPv6) y el país con su ISO.
+
+### Números reales medidos (16/10/2026, esta máquina)
+
+150 vivos de un pool real, `Site=https://www.google.com/`,
+`Success Key=title>Google`, anonimato + paralelo + GeoIP por mmdb:
+
+```
+142 evaluados -> 38 vivos (18 http, 20 socks5), 104 muertos, 107 reintentos
+CPM 354 · 24s · anonimato: 28 Elite / 1 High / 1 Transparent / 8 sin clasificar
+paises (mmdb offline): 19 US, 7 CA, 2 GB, 2 IE, 2 IT, 1 BR, 1 FR, 1 MX
+filtro "brasil" -> 1 vivo · "united states" -> 14 · "GB" -> 1 · "reino unido" -> 1
+```
+
 ## API
 
 - **Lectura (GET)**: `/get?session=X`, `/stats`, `/proxies`, `/logs`, `/proxy.txt`, `/panel`
@@ -187,7 +258,7 @@ tope de 24 MB por descarga).
 - **POST + JSON**: `/validate` y `/import` (`{"path":"..."}` o `{"text":"...","name":"..."}`)
   - Rutas limitadas a cwd, directorio del exe y directorios de las listas activas (symlinks/junctions resueltos antes de validar).
 - **Checker masivo** (sección "Checker Masivo" del panel):
-  - `POST /checker/start` (`X-GW-Panel`): `{"path"|"text", "judge", "country", "geo", "retries", "timeout", "threads", "skip_local"}` — 409 si ya hay un job en marcha.
+  - `POST /checker/start` (`X-GW-Panel`): `{"path"|"text", "site", "success_key", "judge", "country", "geo", "anon", "parallel", "retries", "timeout", "threads", "skip_local"}` — 409 si ya hay un job en marcha.
   - `POST /checker/cancel` · `POST /checker/remove` · `GET /checker/status` · `GET /checker/hits?proto=&limit=`
   - `POST /checker/remove` (`X-GW-Panel`): `{"line":"1.2.3.4:8080"}` · `{"proto":"http|socks4|socks5|all"}` →
     `{"ok", "removed", "remaining"}`. Borra vivos **en memoria**: el contador vivo,
@@ -482,6 +553,44 @@ node tests\test_panel_ui.mjs     # suite UI boton a boton (300: vm + 2x Chrome h
     demote de recién llegados, purga) + fase C de la suite UI (24 tests).
     Batería: **19 + 112 + 25 + 300 + 178** (Go) PASS, 0 races,
     coverage 64.9% (lic 71.4%).
+- **Checker nivel Proxy Checker by xRisky — contenido, anonimato y GeoIP
+  offline (16/10/2026)**: la debilidad era dar por **vivo** cualquier proxy que
+  devolviera una línea HTTP (páginas de error del operador, portales cautivos o
+  respuestas del propio proxy colándose). Ahora:
+  - **Site + Success Key**: se pide una URL real a través del proxy y se exige
+    un texto en el cuerpo (`title>Google`, sin distinguir mayúsculas). Sin
+    Success Key se mantiene la rama rápida (cualquier respuesta válida).
+    El checker **no** valida la cadena de certificados TLS: valida el
+    contenido, así que un proxy con inspección TLS o certificado raro no se
+    descarta por eso.
+  - **Anonimato Elite / High / Transparent** (con `Unknown` si el juez no
+    devuelve eco) y **solo a los vivos**. Si el Site es el juez (caso por
+    defecto) el anonimato sale del mismo cuerpo: **1 petición por proxy**.
+  - **GeoIP offline por mmdb** (`geoip.go`): lector MaxMind DB propio, **sin
+    dependencias** (metadata, árbol 24/28/32 bits, punteros, tipos 1-15,
+    caché). Autodetecta `*.mmdb` o `--geo-mmdb "<ruta>"`; verificado contra
+    GeoLite2 y DB-IP reales (IPv4 e IPv6). Elimina el límite de ip-api
+    (~45/min), que ahora solo se usa —para los vivos— si no hay base.
+  - **Filtro de país tolerante**: nombre en inglés, en español o ISO, y también
+    el nombre oficial largo de DB-IP (`brasil` = `BR` = `brazil`,
+    `reino unido` = `GB` = `united kingdom`). Motivo: GeoLite2 viejo trae
+    `names.es="RU"` para Reino Unido y DB-IP usa nombres de la ONU
+    larguísimos; el país se **muestra** en inglés (como GeoLite2/xRisky) + ISO.
+  - **Cascada en paralelo** (`parallel`, por defecto): SOCKS5/SOCKS4/HTTP a la
+    vez; un muerto cuesta **1 timeout** en vez de 3 (~3x CPM) y gana el vivo de
+    menor ping.
+  - **Estado en vivo tipo xRisky** en el panel: `Valid / Invalid / Retry /
+    Checked / Remaining / CPM / Time Elapsed`, `Thread State` por protocolo,
+    reparto de anonimato, IPv4/IPv6, base GeoIP en uso, Site y Success Key; la
+    tabla añade columna **IP** (v4/v6) y el país con su ISO.
+  - Medición real (150 vivos del pool, Google + `title>Google`, anon +
+    paralelo + mmdb): **142 evaluados → 38 vivos, CPM 354, 24s**; anonimato
+    28 Elite / 1 High / 1 Transparent / 8 sin clasificar; países 19 US, 7 CA,
+    2 GB, 2 IE, 2 IT, 1 BR, 1 FR, 1 MX; filtros `brasil`→1, `united states`→14,
+    `GB`→1, `reino unido`→1.
+  - Tests nuevos: `checker_pro_test.go` (12) y `geoip_test.go` (mmdb sintético,
+    inválidos, ciclo, y bases reales vía `ESPECTRO_TEST_MMDB`).
+    Batería: **19 + 112 + 25 + 300 + 198** (Go) PASS, 0 races, coverage 65.8%.
 
 ## Estructura
 
@@ -493,6 +602,7 @@ upstream.go    dial a proxies HTTP/SOCKS + taxonomía de errores
 health.go      health-check periódico (scope, ping, reintentos)
 harvest.go     Auto-Fuentes: recoleccion + descubrimiento de fuentes
 harvest_api.go endpoints /harvest/*
+geoip.go       lector MaxMind DB propio (GeoIP offline, sin dependencias).
 masscheck.go   checker masivo (cascada, geo, país, discord, /checker/*)
 state.go       estado persistente <lista>.state.json
 api.go         endpoints REST + panel embebido

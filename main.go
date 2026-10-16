@@ -259,6 +259,8 @@ func main() {
 	checkTimeoutMs := flag.Int("check-timeout", 5000, "timeout en ms por intento de health-check")
 	checkRetries := flag.Int("check-retries", 1, "reintentos extra por proxy antes de darlo por muerto (0 = sin reintentos)")
 	checkConnect := flag.Bool("check-connect", false, "el health-check usa CONNECT (tunel) en vez de GET: detecta proxies que pasan el check pero no tunelizan (502 en CONNECT)")
+	checkKey := flag.String("success-key", "", "texto que debe aparecer en el cuerpo de la respuesta para dar el proxy por valido (validacion de contenido, estilo Proxy Checker). Requiere que --test-url devuelva ese texto")
+	geoMMDB := flag.String("geo-mmdb", "", "ruta de una base MaxMind DB de paises (GeoLite2-Country.mmdb / DbipLite-Country.mmdb) para GeoIP offline sin limites de tasa. Vacio = autodetecta en el directorio actual")
 	checkAll := flag.Bool("check-all", false, "el auto-check revisa tambien los muertos verificados (default: solo vivos + sin verificar)")
 	noCooldown := flag.Bool("no-cooldown", false, "desactiva el enfriamiento de proxies fallados en la rotacion (A/B y diagnostico)")
 	noState := flag.Bool("no-state", false, "no persistir el estado de analisis (no crea <lista>.state.json)")
@@ -334,6 +336,24 @@ func main() {
 	app.checkRetries = *checkRetries
 	app.checkAll = *checkAll
 	app.checkConnect = *checkConnect
+	app.checkKey = *checkKey
+	// GeoIP offline: base MaxMind DB local (GeoLite2/DbipLite Country). Sin
+	// ella el checker masivo cae al juez (ip-api.com, ~45 consultas/min).
+	// La ruta se autodetecta si no se indica ninguna.
+	geoPath := strings.TrimSpace(*geoMMDB)
+	if geoPath == "" {
+		geoPath = findGeoDB()
+	}
+	if geoPath != "" {
+		if g, err := openGeoDB(geoPath); err != nil {
+			app.logf("geoip: no se pudo abrir %s: %v", geoPath, err)
+		} else {
+			app.geoDB = g
+			app.logf("geoip: base de paises cargada (%s) desde %s", g.info(), geoPath)
+		}
+	} else if strings.TrimSpace(*geoMMDB) != "" {
+		app.logf("geoip: no existe la base indicada en --geo-mmdb: %s", *geoMMDB)
+	}
 	app.sinEnfriar = *noCooldown
 	app.stateDisabled = *noState
 	app.stateFile = *stateFileFlag
