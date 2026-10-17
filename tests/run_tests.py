@@ -9,8 +9,17 @@ def check(name, cond, detail=""):
     results.append((name, bool(cond), detail))
     print(("PASS " if cond else "FAIL ") + name + (" | " + str(detail)[:200] if detail and not cond else ""))
 
+def _panel_args(args):
+    # /import y /validate exigen la cabecera del panel (anti-CSRF, auditoria
+    # 17/10/2026): son los unicos POST cuyo cuerpo define el objetivo, asi que
+    # una web ajena podia escribir proxys en la lista del usuario. El resto de
+    # endpoints ya la mandan explicita; aqui se centraliza para no repetirla.
+    if any("/import" in a or "/validate" in a for a in args) and not any("X-GW-Panel" in a for a in args):
+        return ["-H", "X-GW-Panel: 1", *args]
+    return list(args)
+
 def curl(*args):
-    p = subprocess.run(["curl.exe", "-s", "--max-time", "15", "--noproxy", "", *args],
+    p = subprocess.run(["curl.exe", "-s", "--max-time", "15", "--noproxy", "", *_panel_args(args)],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     return p.returncode, p.stdout
 

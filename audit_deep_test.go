@@ -126,7 +126,7 @@ func TestReadBodyTrailerAcumuladoConTope(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		sb.WriteString(linea)
 	}
-	_, err, pan := readBodyChunked(sb.String())
+	_, pan, err := readBodyChunked(sb.String())
 	if pan != nil {
 		t.Fatalf("panic: %v", pan)
 	}
@@ -136,7 +136,7 @@ func TestReadBodyTrailerAcumuladoConTope(t *testing.T) {
 }
 
 func TestReadBodyChunkedConTrailerNormalFunciona(t *testing.T) {
-	body, err, pan := readBodyChunked("5\r\nhello\r\n0\r\nX-Extra: 1\r\n\r\n")
+	body, pan, err := readBodyChunked("5\r\nhello\r\n0\r\nX-Extra: 1\r\n\r\n")
 	if pan != nil {
 		t.Fatalf("panic: %v", pan)
 	}

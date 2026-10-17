@@ -111,7 +111,9 @@ func (a *App) proxiesSnapshot() []proxyJSON {
 
 func randomToken() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	// crypto/rand.Read nunca devuelve error (doc: "It never returns an error,
+	// and always fills b entirely"): se ignora de forma explicita.
+	_, _ = rand.Read(b)
 	return "s" + hex.EncodeToString(b)
 }
 
@@ -236,11 +238,6 @@ func (a *App) auth(r *http.Request) authResult {
 	}
 	a.authLim.fail(ip)
 	return authSinToken
-}
-
-// tokenOK valida el token opcional (--api-token) con rate-limit. Sin configurar, todo pasa.
-func (a *App) tokenOK(r *http.Request) bool {
-	return a.auth(r) == authOK
 }
 
 // writeAuth responde 429 (bloqueado) o 401 (token invalido); true = autorizado.

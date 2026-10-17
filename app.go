@@ -75,7 +75,6 @@ type App struct {
 	// reintentos = 16s congelados por bot; la corrida entera se "pausa").
 	enfriar    map[string]int64 // key -> unix sec hasta el que se aparta de la rotacion
 	sinEnfriar bool             // --no-cooldown: desactiva el enfriamiento (A/B y diagnostico)
-	idxEnfriar int              // purgas pendientes (solo cuando el mapa crece)
 
 	checkBatch int // proxies chequeados por ciclo (0 = todos)
 
@@ -197,6 +196,7 @@ func (a *App) LoadProxies() int {
 	for _, p := range a.proxies {
 		old[p.Key()] = pstate{p.Alive, p.Fails, p.Checked, p.PingMs, p.LastCheck, p.Country}
 	}
+	prev := append([]*Proxy(nil), a.proxies...)
 	disk := a.diskState
 	files := append([]string(nil), a.files...)
 	a.mu.Unlock()
@@ -207,7 +207,28 @@ func (a *App) LoadProxies() int {
 	for _, f := range files {
 		data, err := os.ReadFile(f)
 		if err != nil {
-			a.logf("no se pudo leer %s: %v", f, err)
+			// Archivo ILEGIBLE pero presente (bloqueado por otro proceso,
+			// sustituido por un directorio, permisos...): se conservan sus
+			// proxies de la carga anterior. Expulsarlos vaciaba esa parte del
+			// pool Y podaba su estado persistido (se perdia todo el analisis
+			// por un fallo transitorio de lectura); auditoria 17/10/2026.
+			// Cuando el archivo ya no existe, sus proxies si se van.
+			conservados := 0
+			if _, statErr := os.Stat(f); statErr == nil {
+				for _, p := range prev {
+					if p.File != f || seen[p.Key()] {
+						continue
+					}
+					seen[p.Key()] = true
+					proxies = append(proxies, p)
+					conservados++
+				}
+			}
+			if conservados > 0 {
+				a.logf("no se pudo leer %s: %v (se conservan sus %d proxies de la carga anterior)", f, err, conservados)
+			} else {
+				a.logf("no se pudo leer %s: %v", f, err)
+			}
 			continue
 		}
 		defScheme := schemeFromFileName(f)
@@ -749,9 +770,15 @@ func (a *App) editProxy(key, newLine string) (string, error) {
 	p.File = file
 	p.Alive, p.Checked, p.Fails = old.Alive, old.Checked, old.Fails
 	p.PingMs, p.LastCheck = old.PingMs, old.LastCheck
+	// El pais es del host, no de las credenciales: si la direccion no cambia,
+	// el pais sigue siendo valido. Perderlo dejaba el filtro por pais (y
+	// user-country-XX de OB) sin datos hasta el siguiente chequeo
+	// (auditoria 17/10/2026).
+	p.Country = old.Country
 	if !sameAddr {
 		p.Alive, p.Checked, p.Fails = false, false, 0
 		p.PingMs, p.LastCheck = 0, 0
+		p.Country = ""
 	}
 	for i, x := range a.proxies {
 		if x == old {

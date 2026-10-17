@@ -56,7 +56,7 @@ type geoDB struct {
 	dbType string
 	built  int64
 	desc   string
-	ipv4   int // nodo de arranque del subarbol IPv4 (bases v6); -1 = sin calcular
+	ipv4   int // nodo de arranque del subarbol IPv4 (bases v6): lo fija openGeoDB
 
 	nCache atomic.Int64
 	cache  sync.Map // ip (string) -> pais (string); "" tambien se cachea
@@ -105,6 +105,13 @@ func openGeoDB(path string) (*geoDB, error) {
 		return nil, errors.New("arbol mmdb fuera de rango")
 	}
 	g.ipv6 = mmdbInt(md["ip_version"]) == 6
+	if g.ipv6 {
+		// El nodo de arranque del subarbol IPv4 se localiza UNA vez, aqui en
+		// la apertura (monohilo). Resolverlo en caliente desde los hilos del
+		// checker era una carrera de datos sobre g.ipv4 (auditoria 17/10/2026:
+		// el detector de carreras la reproduce con la base real de paises).
+		g.ipv4 = g.computeIPv4Start()
+	}
 	if s, ok := md["database_type"].(string); ok {
 		g.dbType = s
 	}
@@ -289,10 +296,13 @@ func (g *geoDB) resolve(v int) (map[string]any, error) {
 
 // ipv4Start: nodo donde arranca el subarbol IPv4 de una base IPv6
 // (96 ramas de ceros desde la raiz, spec "IPv4 addresses in an IPv6 tree").
-func (g *geoDB) ipv4Start() int {
-	if g.ipv4 >= 0 {
-		return g.ipv4
-	}
+// Solo LEE: el valor lo fija computeIPv4Start() en openGeoDB, antes de que la
+// base se comparta entre hilos (calcularlo aqui en caliente era una carrera
+// de datos sobre g.ipv4: auditoria 17/10/2026).
+func (g *geoDB) ipv4Start() int { return g.ipv4 }
+
+// computeIPv4Start: calculo puro del nodo de arranque IPv4 (sin estado).
+func (g *geoDB) computeIPv4Start() int {
 	n := 0
 	for i := 0; i < 96; i++ {
 		if n < 0 || n >= g.nodeCnt {
@@ -300,7 +310,6 @@ func (g *geoDB) ipv4Start() int {
 		}
 		n = g.readNode(n, 0)
 	}
-	g.ipv4 = n
 	return n
 }
 

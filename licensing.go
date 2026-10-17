@@ -201,7 +201,10 @@ func countCandidates(cfg massCfg) int {
 		scanRuta(cfg.path)
 		return n
 	}
-	filepath.Walk(cfg.path, func(p string, info os.FileInfo, err error) error {
+	// Un error de recorrido dejaria el recuento a medias: no es una via de
+	// escape del tope demo, porque el feeder del checker recorre el MISMO
+	// arbol con el mismo criterio (massFeed) y tambien se detendria ahi.
+	_ = filepath.Walk(cfg.path, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
 		}

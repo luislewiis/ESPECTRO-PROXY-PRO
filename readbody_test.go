@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-func readBodyChunked(raw string) (body []byte, err error, panicked interface{}) {
+func readBodyChunked(raw string) (body []byte, panicked interface{}, err error) {
 	defer func() { panicked = recover() }()
 	h := map[string]string{"transfer-encoding": "chunked"}
 	body, err = readBody(bufio.NewReader(strings.NewReader(raw)), h)
@@ -21,7 +21,7 @@ func readBodyChunked(raw string) (body []byte, err error, panicked interface{}) 
 }
 
 func TestReadBodyNegativeChunkRejected(t *testing.T) {
-	_, err, pan := readBodyChunked("-1\r\n" + strings.Repeat("A", 16) + "\r\n0\r\n\r\n")
+	_, pan, err := readBodyChunked("-1\r\n" + strings.Repeat("A", 16) + "\r\n0\r\n\r\n")
 	if pan != nil {
 		t.Fatalf("SEC-01: panic con chunk negativo: %v", pan)
 	}
@@ -31,7 +31,7 @@ func TestReadBodyNegativeChunkRejected(t *testing.T) {
 }
 
 func TestReadBodyOverflowChunkRejected(t *testing.T) {
-	_, err, pan := readBodyChunked("1\r\nA\r\n7FFFFFFFFFFFFFFF\r\nBBBBBBBB")
+	_, pan, err := readBodyChunked("1\r\nA\r\n7FFFFFFFFFFFFFFF\r\nBBBBBBBB")
 	if pan != nil {
 		t.Fatalf("SEC-01b: panic por desbordamiento: %v", pan)
 	}
@@ -41,7 +41,7 @@ func TestReadBodyOverflowChunkRejected(t *testing.T) {
 }
 
 func TestReadBodyTruncatedStreamRejected(t *testing.T) {
-	body, err, pan := readBodyChunked("5\r\nhello\r\n")
+	body, pan, err := readBodyChunked("5\r\nhello\r\n")
 	if pan != nil {
 		t.Fatalf("panic inesperado: %v", pan)
 	}
@@ -51,7 +51,7 @@ func TestReadBodyTruncatedStreamRejected(t *testing.T) {
 }
 
 func TestReadBodyValidChunkedStillWorks(t *testing.T) {
-	body, err, pan := readBodyChunked("5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n")
+	body, pan, err := readBodyChunked("5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n")
 	if pan != nil {
 		t.Fatalf("panic inesperado: %v", pan)
 	}

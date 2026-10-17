@@ -16,14 +16,22 @@ def skip(name, why):
     results.append((name, True, "SKIP"))
     print("SKIP " + name + " | " + why)
 
+def _panel_args(args):
+    # /import y /validate exigen la cabecera del panel (anti-CSRF, auditoria
+    # 17/10/2026): son los unicos POST cuyo cuerpo define el objetivo (archivo
+    # o texto a importar). El resto ya la manda explicita en cada llamada.
+    if any("/import" in a or "/validate" in a for a in args) and not any("X-GW-Panel" in a for a in args):
+        return ["-H", "X-GW-Panel: 1", *args]
+    return list(args)
+
 def curl(*args, timeout=15):
-    p = subprocess.run(["curl.exe", "-s", "--max-time", str(timeout), "--noproxy", "", *args],
+    p = subprocess.run(["curl.exe", "-s", "--max-time", str(timeout), "--noproxy", "", *_panel_args(args)],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     return p.returncode, p.stdout
 
 def curl_code(*args, timeout=15):
     p = subprocess.run(["curl.exe", "-s", "--max-time", str(timeout), "--noproxy", "",
-                        "-w", "\n%{http_code}", *args],
+                        "-w", "\n%{http_code}", *_panel_args(args)],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     out = p.stdout.rsplit("\n", 1)
     return (out[1].strip() if len(out) > 1 else ""), (out[0] if out else "")

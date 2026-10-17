@@ -286,8 +286,10 @@ filtro "brasil" -> 1 vivo · "united states" -> 14 · "GB" -> 1 · "reino unido"
     reescribe ese proxy en disco con credenciales completas (`LineaCanon()`);
     conserva su estado si la dirección no cambia y lo resetea si cambia.
     Respuesta `{"ok","key","total"}`.
-- **POST + JSON**: `/validate` y `/import` (`{"path":"..."}` o `{"text":"...","name":"..."}`)
+- **POST + JSON (con cabecera `X-GW-Panel: 1`)**: `/validate` y `/import` (`{"path":"..."}` o `{"text":"...","name":"..."}`)
   - Rutas limitadas a cwd, directorio del exe y directorios de las listas activas (symlinks/junctions resueltos antes de validar).
+  - `/import` escribe en la lista principal: exige la cabecera del panel para que
+    una web ajena no pueda colar proxys en tu lista por CSRF (auditoría 17/10/2026).
 - **Checker masivo** (sección "Checker Masivo" del panel):
   - `POST /checker/start` (`X-GW-Panel`): `{"path"|"text", "site", "success_key", "judge", "country", "geo", "anon", "parallel", "retries", "timeout", "threads", "skip_local"}` — 409 si ya hay un job en marcha.
   - `POST /checker/cancel` · `POST /checker/remove` · `GET /checker/status` · `GET /checker/hits?proto=&limit=`

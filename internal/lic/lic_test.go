@@ -126,8 +126,15 @@ func TestEncodeDecodeFile(t *testing.T) {
 }
 
 func TestFingerprintEstable(t *testing.T) {
-	if Fingerprint("abc") != Fingerprint("abc") || Fingerprint("abc") == Fingerprint("abd") {
-		t.Fatal("Fingerprint debe ser determinista y distinguir maquinas")
+	// mismas entradas -> mismo resultado (determinista); entradas distintas ->
+	// resultados distintos. Variables intermedias: SA4000 no puede confundirse
+	// con una comparacion de una expresion consigo misma.
+	a, b, c := Fingerprint("abc"), Fingerprint("abc"), Fingerprint("abd")
+	if a != b {
+		t.Fatal("Fingerprint debe ser determinista (dos llamadas iguales difieren)")
+	}
+	if a == c {
+		t.Fatal("Fingerprint debe distinguir maquinas distintas")
 	}
 	if len(Fingerprint("x")) != 64 {
 		t.Errorf("fingerprint = %d chars, esperaba 64 (sha256 hex)", len(Fingerprint("x")))

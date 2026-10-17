@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -139,9 +140,8 @@ func whyInvalid(s string) string {
 			return "falta el host"
 		}
 		if ps := u.Port(); ps != "" {
-			var n int
-			fmt.Sscanf(ps, "%d", &n)
-			if n < 1 || n > 65535 {
+			n, err := strconv.Atoi(ps)
+			if err != nil || n < 1 || n > 65535 {
 				return "puerto fuera de rango (1-65535)"
 			}
 		}
@@ -245,7 +245,13 @@ func (a *App) importHandler(dry bool) http.HandlerFunc {
 			fmt.Fprint(w, `{"ok":false,"error":"usa POST"}`)
 			return
 		}
-		if !writeAuth(w, a.auth(r)) {
+		// /validate y /import cambian estado (import escribe en la lista del
+		// usuario) o leen archivos del disco: exigen la cabecera X-GW-Panel,
+		// igual que el resto de endpoints mutantes. Sin ella, una web ajena
+		// podia enviar un POST "simple" (text/plain, sin preflight) a
+		// 127.0.0.1 y colar proxys suyos en la lista del usuario (CSRF).
+		// El panel ya la envia en todos sus POST (jpost -> gwHeaders).
+		if !a.allowPanel(w, r) {
 			return
 		}
 		data, source, err := a.readImportPayload(r)

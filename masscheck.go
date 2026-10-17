@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -910,7 +911,7 @@ func (a *App) massFeed(j *massJob, cfg massCfg, ch chan<- *massItem) {
 		scan(cfg.path)
 		return
 	}
-	filepath.Walk(cfg.path, func(p string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(cfg.path, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
 		}
@@ -922,13 +923,60 @@ func (a *App) massFeed(j *massJob, cfg massCfg, ch chan<- *massItem) {
 			return filepath.SkipDir
 		}
 		return nil
-	})
+	}); err != nil {
+		// Antes era un fallo mudo: el job terminaba "bien" habiendo evaluado
+		// una parte de la carpeta (auditoria 17/10/2026).
+		a.logf("checker masivo: no se pudo recorrer %s: %v", cfg.path, err)
+	}
 }
 
-// isLocalLine filtra privados/loopback (mismo filtro que Espectro).
+// isLocalLine filtra direcciones internas (mismo espiritu que Espectro:
+// validar una IP privada no aporta nada). Antes solo miraba los prefijos
+// 127./10./192.168./localhost del TEXTO, asi que se le escapaban 172.16/12,
+// 169.254/16, CGNAT, 0.0.0.0, ::1 y cualquier linea con esquema o
+// credenciales (auditoria 17/10/2026). Ahora extrae el host y lo clasifica.
 func isLocalLine(s string) bool {
-	return strings.HasPrefix(s, "127.") || strings.HasPrefix(s, "192.168.") ||
-		strings.HasPrefix(s, "10.") || strings.HasPrefix(s, "localhost")
+	s = strings.TrimSpace(s)
+	if s == "" || strings.HasPrefix(s, "#") {
+		return false
+	}
+	if i := strings.Index(s, "://"); i >= 0 {
+		s = s[i+3:]
+	}
+	if i := strings.LastIndex(s, "@"); i >= 0 {
+		s = s[i+1:]
+	}
+	if s == "" {
+		return false
+	}
+	host := s
+	if h, _, err := net.SplitHostPort(s); err == nil {
+		host = h
+	} else if i := strings.LastIndex(s, ":"); i > 0 {
+		// sin corchetes: "::1:8080" o "fe80::1:8080" (v6 + puerto)
+		host = s[:i]
+	}
+	host = strings.Trim(host, "[]")
+	if host == "" {
+		return false
+	}
+	lh := strings.ToLower(host)
+	if lh == "localhost" || strings.HasSuffix(lh, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+		return true
+	}
+	// 100.64.0.0/10 (CGNAT) no entra en IsPrivate
+	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1]&0xc0 == 0x40 {
+		return true
+	}
+	return false
 }
 
 // massCheckOne: cascada + reintentos + clasificacion + filtro de pais + hit.
@@ -1003,7 +1051,15 @@ func (j *massJob) addHit(h massHit) {
 		strings.ToUpper(h.Proto), h.Ping, h.Anon, h.Country)
 	j.wmu.Lock()
 	defer j.wmu.Unlock()
-	if bw := j.bw[h.Proto]; bw != nil {
+	// socks4a no tiene fichero propio: se registra junto a socks4 (OB no
+	// distingue, los contadores tampoco). Sin esto, un vivo declarado como
+	// socks4a:// contaba en el panel y en el export pero NO aparecia en
+	// Live_SOCKS4.txt (auditoria 17/10/2026).
+	fileProto := h.Proto
+	if fileProto == "socks4a" {
+		fileProto = "socks4"
+	}
+	if bw := j.bw[fileProto]; bw != nil {
 		bw.WriteString(full)
 		bw.WriteString("\n")
 	}
@@ -1019,7 +1075,10 @@ func (j *massJob) addHit(h massHit) {
 					j.cbw = map[string]*bufio.Writer{}
 				}
 				paisDir := filepath.Join(j.dir, "Paises Validados")
-				os.MkdirAll(paisDir, 0755)
+				// Si la carpeta no se puede crear, el OpenFile de abajo falla y
+				// el pais se omite: el vivo sigue en el panel/export (no se
+				// pierde nada mas). El error real lo reporta ese OpenFile.
+				_ = os.MkdirAll(paisDir, 0755)
 				f, err := os.OpenFile(filepath.Join(paisDir, safe+".txt"),
 					os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 				if err == nil {
@@ -1081,22 +1140,37 @@ func (j *massJob) fail(err error) {
 // finish: flush, cierre, Report.json, Discord y log de resumen.
 func (j *massJob) finish(a *App) {
 	j.wmu.Lock()
+	fallo := false
 	for _, bw := range j.bw {
-		bw.Flush()
+		if err := bw.Flush(); err != nil {
+			fallo = true
+		}
 	}
 	for _, bw := range j.cbw {
-		bw.Flush()
+		if err := bw.Flush(); err != nil {
+			fallo = true
+		}
 	}
 	for _, f := range j.files {
-		f.Close()
+		if err := f.Close(); err != nil {
+			fallo = true
+		}
 	}
 	for _, f := range j.cfile {
-		f.Close()
+		if err := f.Close(); err != nil {
+			fallo = true
+		}
 	}
 	j.wmu.Unlock()
+	if fallo {
+		// Caso tipico: disco lleno o permisos. Los vivos siguen en memoria
+		// (panel y export funcionan) pero el volcado a disco quedo incompleto:
+		// antes esto era un fallo mudo (auditoria 17/10/2026).
+		a.logf("aviso: no se pudieron volcar todas las listas del checker a disco en %s (disco lleno o permisos)", j.dir)
+	}
 
-	j.writeReport()
-	j.notifyDiscord()
+	j.writeReport(a)
+	j.notifyDiscord(a)
 
 	j.mu.Lock()
 	j.running = false
@@ -1172,19 +1246,23 @@ func geoInfo(g *geoDB) string {
 	return g.info()
 }
 
-func (j *massJob) writeReport() {
+func (j *massJob) writeReport(a *App) {
 	j.mu.Lock()
 	dir := j.dir
 	j.mu.Unlock()
 	if dir == "" {
 		return
 	}
-	os.WriteFile(filepath.Join(dir, "Report.json"), j.reportBytes(), 0644)
+	// Un fallo al escribir el informe no puede pasar en silencio: es el
+	// resumen del trabajo del usuario (auditoria 17/10/2026).
+	if err := os.WriteFile(filepath.Join(dir, "Report.json"), j.reportBytes(), 0644); err != nil {
+		a.logf("no se pudo escribir Report.json en %s: %v", dir, err)
+	}
 }
 
 // notifyDiscord: webhook.txt en el cwd (herencia Espectro). Silencioso.
 // Requiere licencia Pro (notificacion remota = funcion comercial).
-func (j *massJob) notifyDiscord() {
+func (j *massJob) notifyDiscord(a *App) {
 	if !licPro() || j.webhook == "" {
 		return
 	}
@@ -1199,7 +1277,9 @@ func (j *massJob) notifyDiscord() {
 	alive := j.nHTTP.Load() + j.nS4.Load() + j.nS5.Load()
 	msg := fmt.Sprintf("✅ **ESPECTRO PROXY PRO Checker terminado**\nEvaluados: %d\nVivos: %d\nMuertos: %d",
 		j.tested.Load(), alive, j.bad.Load())
-	sendDiscord(u, msg)
+	if err := sendDiscord(u, msg); err != nil {
+		a.logf("aviso a Discord fallido: %v", err)
+	}
 }
 
 func sendDiscord(webhookURL, msg string) error {

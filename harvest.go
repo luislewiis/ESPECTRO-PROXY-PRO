@@ -523,13 +523,6 @@ func harvestExtract(body, proto string) map[string]*Proxy {
 // Pasada de recoleccion
 // ---------------------------------------------------------------------------
 
-type harvestSrcResult struct {
-	name string
-	raw  int
-	uniq int
-	err  error
-}
-
 // RunOnce recolecta todas las fuentes habilitadas, agrega solo lo nuevo al
 // pool y (opcionalmente) drena un health-check de los recien llegados.
 func (h *Harvester) RunOnce(ctx context.Context) error {

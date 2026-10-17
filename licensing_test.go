@@ -132,13 +132,13 @@ func TestDiscordSoloPro(t *testing.T) {
 	j := &massJob{webhook: ruta}
 
 	enModoDemo(t)
-	j.notifyDiscord()
+	j.notifyDiscord(&App{})
 	if n := llegaron.Load(); n != 0 {
 		t.Errorf("modo demo debio bloquear Discord, llegaron %d peticiones", n)
 	}
 
 	conLicPro(t)
-	j.notifyDiscord()
+	j.notifyDiscord(&App{})
 	if n := llegaron.Load(); n != 1 {
 		t.Errorf("modo Pro debio enviar 1 notificacion, llegaron %d", n)
 	}

@@ -544,9 +544,14 @@ async function phaseB() {
     await T('button.itab[data-t="path"]').click();
     await T('#pathInput').fill('C:\\no_existe_zz\\nada.txt');
     await T('#itab-path button:has-text("Validar ruta")').click();
-    ok(await poll(() => txtOf('#valChips').then(t => t.includes('✗') && t.length > 1), 6000),
+    // Ojo: los chips de la fase anterior ya traen "✗", asi que un poll que solo
+    // busque "✗" pasa al instante y la asercion corre ANTES de que responda el
+    // servidor (flaky). Hay que esperar el texto de ESTA validacion; si no, dos
+    // validaciones seguidas pueden resolverse en orden inverso y pisarse.
+    ok(await poll(() => txtOf('#valChips').then(t => t.includes('acceso denegado')), 6000),
       'B10 ruta inexistente: chip de error', await txtOf('#valChips'));
-    ok((await txtOf('#impHint')) === 'ruta no válida', 'B10 hint "ruta no valida"', await txtOf('#impHint'));
+    ok(await poll(() => txtOf('#impHint').then(t => t === 'ruta no válida'), 6000),
+      'B10 hint "ruta no valida"', await txtOf('#impHint'));
     ok(await T('#btnImport').isDisabled(), 'B10 boton deshabilitado con ruta mala');
     await T('#pathInput').fill(path.join(TMP, 'zz_ui_bad.exe'));
     await T('#itab-path button:has-text("Validar ruta")').click();
@@ -554,9 +559,11 @@ async function phaseB() {
       'B10 .exe rechazado por el servidor', await txtOf('#valChips'));
     await T('#pathInput').fill(path.join(TMP, 'zz_ui_ok.txt'));
     await T('#pathInput').press('Enter'); // Enter dispara validatePath
-    ok(await poll(() => txtOf('#valChips').then(t => t.includes('✓ 2') && t.includes('✗ 2')), 6000),
+    // Igual que arriba: esperar el hint de ESTA validacion (lleva la ruta).
+    ok(await poll(() => txtOf('#impHint').then(t => t.includes('validado por el servidor')), 6000),
+      'B10 hint de validado por servidor', await txtOf('#impHint'));
+    ok((await txtOf('#valChips')).includes('✓ 2') && (await txtOf('#valChips')).includes('✗ 2'),
       'B10 Enter valida la ruta: 2 validos / 2 invalidos', await txtOf('#valChips'));
-    ok((await txtOf('#impHint')).includes('validado por el servidor'), 'B10 hint de validado por servidor', await txtOf('#impHint'));
     ok((await txtOf('#btnImport')) === 'Importar 2 proxies', 'B10 boton habilitado con ruta valida', await txtOf('#btnImport'));
 
     /* ---- B11: importar ---- */
