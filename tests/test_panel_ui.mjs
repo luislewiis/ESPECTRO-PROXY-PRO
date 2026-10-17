@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const EXE = path.join(ROOT, 'ProxyGateway.exe');
+const EXE = process.env.GW_EXE || path.join(ROOT, 'ProxyGateway.exe');
 const PW_DIR = path.join(os.tmpdir(), 'opencode', 'node_pw');
 const TMP = path.join(os.tmpdir(), 'opencode', 'zz_uipanel');
 const HTTP_PORT = 19080, API_PORT = 19081;
@@ -68,7 +68,7 @@ function phaseA() {
     fetch: async () => ({ ok: false, status: 500, json: async () => ({}) }),
     setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
     requestAnimationFrame: () => 0, console,
-    URL, Set, Map, JSON, Math, Date, String, Number, Array, Object, RegExp, Promise,
+    URL, URLSearchParams, Set, Map, JSON, Math, Date, String, Number, Array, Object, RegExp, Promise,
     parseInt, parseFloat, isNaN, encodeURIComponent, decodeURIComponent,
   };
   sandbox.globalThis = sandbox;
@@ -270,6 +270,37 @@ async function phaseB() {
       return false;
     };
     const firstIdx = async () => txtOf('#ptbody tr:first-child td.idx');
+    // relay HTTP local (se usa como proxy): reenvia la peticion absoluta al
+    // destino. Compartido por los bloques que necesitan un vivo real.
+    const mkRelay = () => net.createServer(sock => {
+      let buf = Buffer.alloc(0), up = null;
+      sock.on('error', () => {});
+      sock.on('data', d => {
+        if (up) { up.write(d); return; }
+        buf = Buffer.concat([buf, d]);
+        const i = buf.indexOf('\r\n\r\n');
+        if (i < 0) return;
+        const head = buf.slice(0, i).toString('latin1');
+        const rest = buf.slice(i + 4);
+        const first = (head.split('\r\n')[0] || '');
+        const mm = first.match(/^[A-Za-z]+ (\S+) HTTP\/1\.[01]$/);
+        if (!mm || !/^https?:\/\//.test(mm[1])) { sock.destroy(); return; }
+        const u = new URL(mm[1]);
+        up = net.connect(Number(u.port) || 80, u.hostname, () => {
+          up.write('GET ' + u.pathname + u.search + ' HTTP/1.1\r\nHost: ' + u.host +
+            '\r\nConnection: close\r\n\r\n');
+          if (rest.length) up.write(rest);
+        });
+        up.on('data', d2 => sock.write(d2));
+        up.on('end', () => sock.end());
+        up.on('error', () => sock.destroy());
+      });
+    });
+    // juez mini (ip-api-like): el pais que se usara en el checker
+    const mkJudge = pais => http.createServer((q, s) => {
+      s.writeHead(200, { 'Content-Type': 'application/json' });
+      s.end('{"country":"' + pais + '","query":"127.0.0.1"}');
+    });
 
     /* ---- B1: carga + KPIs ---- */
     const resp = await page.goto(BASE + '/panel', { waitUntil: 'load', timeout: 15000 });
@@ -730,8 +761,8 @@ async function phaseB() {
     const miss19 = [];
     for (const id of need19) if ((await page.locator('#' + id).count()) !== 1) miss19.push(id);
     ok(miss19.length === 0, 'B19 controles de borrado presentes', miss19.join(','));
-    ok((await page.locator('#massHitsWrap thead th').count()) === 7,
-      'B19 tabla de vivos con columna de seleccion y ×');
+    ok((await page.locator('#massHitsWrap thead th').count()) === 8,
+      'B19 tabla de vivos con columna de seleccion, IP y ×');
 
     // --- borrado por protocolo en el input ---
     await T('#massSection button[data-mt="text"]').click();
@@ -798,36 +829,10 @@ async function phaseB() {
     ok(rEmpty.status === 400, 'B19 sin line ni proto -> 400', String(rEmpty.status));
 
     // --- vivo real local: juez + relay, y borrado de la tabla de vivos ---
-    const judgeSrv = http.createServer((q, s) => {
-      s.writeHead(200, { 'Content-Type': 'application/json' });
-      s.end('{"country":"Espania","query":"127.0.0.1"}');
-    });
+    const judgeSrv = mkJudge('Espania');
     await new Promise(r => judgeSrv.listen(0, '127.0.0.1', r));
     const judgeUrl = 'http://127.0.0.1:' + judgeSrv.address().port + '/json';
-    const relaySrv = net.createServer(sock => {
-      let buf = Buffer.alloc(0), up = null;
-      sock.on('error', () => {});
-      sock.on('data', d => {
-        if (up) { up.write(d); return; }
-        buf = Buffer.concat([buf, d]);
-        const i = buf.indexOf('\r\n\r\n');
-        if (i < 0) return;
-        const head = buf.slice(0, i).toString('latin1');
-        const rest = buf.slice(i + 4);
-        const first = (head.split('\r\n')[0] || '');
-        const mm = first.match(/^[A-Za-z]+ (\S+) HTTP\/1\.[01]$/);
-        if (!mm || !/^https?:\/\//.test(mm[1])) { sock.destroy(); return; }
-        const u = new URL(mm[1]);
-        up = net.connect(Number(u.port) || 80, u.hostname, () => {
-          up.write('GET ' + u.pathname + u.search + ' HTTP/1.1\r\nHost: ' + u.host +
-            '\r\nConnection: close\r\n\r\n');
-          if (rest.length) up.write(rest);
-        });
-        up.on('data', d2 => sock.write(d2));
-        up.on('end', () => sock.end());
-        up.on('error', () => sock.destroy());
-      });
-    });
+    const relaySrv = mkRelay();
     await new Promise(r => relaySrv.listen(0, '127.0.0.1', r));
     const relayPort = relaySrv.address().port;
 
@@ -990,6 +995,77 @@ async function phaseB() {
     } finally {
       await apiPage.close().catch(() => {});
     }
+
+    /* ---- B21: activar / exportar por país (activate.go) ---- */
+    // Un vivo real con país (juez local) para probar chips, export y activación.
+    const judgeSrv2 = mkJudge('Brazil');
+    await new Promise(r => judgeSrv2.listen(0, '127.0.0.1', r));
+    const judgeUrl2 = 'http://127.0.0.1:' + judgeSrv2.address().port + '/json';
+    const relaySrv2 = mkRelay();
+    await new Promise(r => relaySrv2.listen(0, '127.0.0.1', r));
+    const relayPort2 = relaySrv2.address().port;
+    await T('#massSection button[data-mt="text"]').click();
+    await T('#massText').fill('http://127.0.0.1:' + relayPort2);
+    await page.evaluate(() => { document.getElementById('massSkipLocal').checked = false; });
+    await T('#massJudge').fill(judgeUrl2);
+    await T('#massTimeout').fill('3000');
+    await T('#massRetries').fill('0');
+    await T('#massThreads').fill('2');
+    await T('#btnMassStart').click();
+    ok(await poll(async () => (await api('/checker/status')).done === true, 30000),
+      'B21 job con un vivo y país', JSON.stringify(await api('/checker/status')));
+    ok((await api('/checker/status')).alive === 1, 'B21 1 vivo',
+      JSON.stringify(await api('/checker/status')));
+    await page.evaluate(() => refreshMass());
+    ok(await poll(() => T('#massCountryChips button').count().then(n => n >= 2), 8000),
+      'B21 chips de país pintados', await txtOf('#massCountryChips'));
+    const chipTxt = await txtOf('#massCountryChips');
+    ok(/Bra[sz]il/i.test(chipTxt), 'B21 el país del vivo está en los chips', chipTxt);
+    ok((await T('#massExpFmt option').count()) === 6, 'B21 selector de formato con 6 opciones',
+      String(await T('#massExpFmt option').count()));
+    ok((await T('#btnMassActivate').isVisible()) && (await T('#massOnlySel').count()) === 1,
+      'B21 botón activar + casilla "solo estos"');
+    // seleccionar el chip del país (el último es "todos")
+    await T('#massCountryChips button:not(:last-child)').first().click();
+    ok((await T('#massCountryChips button.active').count()) === 1,
+      'B21 chip de país seleccionado', await txtOf('#massCountryChips'));
+    ok((await T('#expPlain').getAttribute('href')).includes('countries='),
+      'B21 el export sigue a la selección de país', await T('#expPlain').getAttribute('href'));
+    // export por país vía API: el vivo sale (alias ES/ISO), otro país no
+    const expBr = await (await fetch(BASE + '/checker/export?proto=all&format=plain&countries=brasil')).text();
+    ok(expBr.includes('127.0.0.1:' + relayPort2), 'B21 export por país (alias en español)',
+      JSON.stringify(expBr));
+    const expBrOB = await (await fetch(BASE + '/checker/export?format=ob&countries=BR')).text();
+    ok(expBrOB.trim().startsWith('0:127.0.0.1:'), 'B21 export formato OpenBullet por ISO',
+      JSON.stringify(expBrOB));
+    const expJp = await (await fetch(BASE + '/checker/export?proto=all&format=plain&countries=japon')).text();
+    ok(expJp.trim() === '', 'B21 export de un país sin vivos = vacío', JSON.stringify(expJp));
+    const cnt = await api('/checker/countries');
+    ok(Array.isArray(cnt.list) && cnt.list.length === 1 && cnt.list[0].count === 1 &&
+      /^Bra[sz]il$/.test(cnt.list[0].name), 'B21 /checker/countries list con nombre y conteo',
+      JSON.stringify(cnt));
+    // activar en el pool: el vivo queda VIVO y se filtra por país en /proxy.txt
+    await T('#btnMassActivate').click();
+    ok(await poll(async () => {
+      const t = await (await fetch(BASE + '/proxy.txt?alive=1&country=Brazil')).text();
+      return t.includes('127.0.0.1:' + relayPort2);
+    }, 10000), 'B21 activado: el vivo entra al pool y se filtra por país');
+    ok(await poll(() => txtOf('#massActHint').then(t => /activados 1/.test(t)), 8000),
+      'B21 hint de activación', await txtOf('#massActHint'));
+    ok(await poll(() => txtOf('#massActHint').then(t => /Bra[sz]il 1/.test(t)), 8000),
+      'B21 hint con desglose por país', await txtOf('#massActHint'));
+    const poolOtro = await (await fetch(BASE + '/proxy.txt?alive=1&country=japon')).text();
+    ok(poolOtro.trim() === '', 'B21 /proxy.txt de otro país = vacío', JSON.stringify(poolOtro));
+    // activar sin coincidencias / sin cabecera de panel
+    const rAct400 = await fetch(BASE + '/checker/activate', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-GW-Panel': '1' }, body: '{"countries":"japon"}' });
+    ok(rAct400.status === 400, 'B21 activar sin coincidencias -> 400', String(rAct400.status));
+    const rAct403 = await fetch(BASE + '/checker/activate', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    ok(rAct403.status === 403, 'B21 activar sin X-GW-Panel -> 403', String(rAct403.status));
+    relaySrv2.close();
+    judgeSrv2.close();
+    await T('#massJudge').fill('');
 
     /* ---- global: 0 errores JS ---- */
     ok(pageErrors.length === 0, 'GLOBAL 0 pageerror en toda la sesion',

@@ -261,6 +261,7 @@ func main() {
 	checkConnect := flag.Bool("check-connect", false, "el health-check usa CONNECT (tunel) en vez de GET: detecta proxies que pasan el check pero no tunelizan (502 en CONNECT)")
 	checkKey := flag.String("success-key", "", "texto que debe aparecer en el cuerpo de la respuesta para dar el proxy por valido (validacion de contenido, estilo Proxy Checker). Requiere que --test-url devuelva ese texto")
 	geoMMDB := flag.String("geo-mmdb", "", "ruta de una base MaxMind DB de paises (GeoLite2-Country.mmdb / DbipLite-Country.mmdb) para GeoIP offline sin limites de tasa. Vacio = autodetecta en el directorio actual")
+	activateOut := flag.String("activate-out", activateOutDefault, "archivo propio donde el checker guarda los proxies ACTIVADOS por pais (nunca toca proxies.txt ni harvested.txt)")
 	checkAll := flag.Bool("check-all", false, "el auto-check revisa tambien los muertos verificados (default: solo vivos + sin verificar)")
 	noCooldown := flag.Bool("no-cooldown", false, "desactiva el enfriamiento de proxies fallados en la rotacion (A/B y diagnostico)")
 	noState := flag.Bool("no-state", false, "no persistir el estado de analisis (no crea <lista>.state.json)")
@@ -357,6 +358,18 @@ func main() {
 	app.sinEnfriar = *noCooldown
 	app.stateDisabled = *noState
 	app.stateFile = *stateFileFlag
+	// Activados por pais (activate.go): archivo propio del checker. Si ya
+	// existe, entra al pool desde el primer LoadProxies (nunca proxies.txt).
+	app.massMu.Lock()
+	app.activateFile = strings.TrimSpace(*activateOut)
+	app.massMu.Unlock()
+	if p := strings.TrimSpace(*activateOut); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			app.mu.Lock()
+			app.files = append(app.files, p)
+			app.mu.Unlock()
+		}
+	}
 	if *idleTimeout > 0 {
 		app.idle = time.Duration(*idleTimeout) * time.Second
 	}

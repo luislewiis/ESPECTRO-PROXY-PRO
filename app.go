@@ -106,9 +106,10 @@ type App struct {
 	stateTimerMu  sync.Mutex
 
 	// Checker masivo (masscheck.go): job activo + configuracion.
-	massMu   sync.Mutex
-	mass     *massJob
-	massBase string // carpeta base de salidas ("Resultados"; tests la cambian)
+	massMu       sync.Mutex
+	mass         *massJob
+	massBase     string // carpeta base de salidas ("Resultados"; tests la cambian)
+	activateFile string // archivo propio de los activados por pais (activados.txt)
 
 	logMu sync.Mutex
 	logs  []string
@@ -347,11 +348,13 @@ func (a *App) pickWithCountry(session, country string, exclude map[*Proxy]bool) 
 	}
 
 	// Filtro de pais (P2.2): si viene especificado country y hay proxies que coincidan,
-	// restringir la seleccion a ese pais.
+	// restringir la seleccion a ese pais. Acepta varios paises y nombres
+	// tolerantes ("BR,US", "brasil", "united kingdom").
 	if country != "" {
+		wants := parseCountries(country)
 		var matched []*Proxy
 		for _, p := range base {
-			if strings.EqualFold(p.Country, country) {
+			if proxyCountryMatch(p, wants) {
 				matched = append(matched, p)
 			}
 		}

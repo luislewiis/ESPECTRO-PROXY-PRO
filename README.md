@@ -42,6 +42,7 @@ compartida la consola no se toca y `--console` la mantiene visible.
 | `--test-url` | `http://api.ipify.org/` | URL de validación |
 | `--success-key` | *(vacío)* | Texto que **debe** aparecer en el cuerpo de la respuesta para dar el proxy por válido (validación de contenido real, estilo Proxy Checker). Ej.: `--test-url https://www.google.com/ --success-key "title>Google"` | 
 | `--geo-mmdb` | *(auto)* | Ruta a una base MaxMind DB de países (`GeoLite2-Country.mmdb` / `DbipLite-Country.mmdb`) para **GeoIP offline** sin límites de tasa. Vacío = autodetecta `*.mmdb` en el directorio actual |
+| `--activate-out` | `activados.txt` | Archivo propio donde el checker guarda los proxies **activados por país** (nunca toca `proxies.txt` ni `harvested.txt`). Se carga al pool desde el arranque si existe |
 | `--api-token` | *(vacío)* | Token opcional para endpoints mutantes (header `X-API-Token`) |
 | `--allow-any-path` | `false` | Desactiva la jaula de rutas de `/validate` e `/import` |
 | `--idle-timeout` | `600` | Watchdog de inactividad en conexiones (0 = off) |
@@ -218,6 +219,34 @@ Time Elapsed`, el `Thread State` por protocolo (HTTP · Socks4 · Socks5 activos
 el reparto de anonimato, IPv4/IPv6, la base GeoIP en uso, el Site y la Success
 Key. La tabla de vivos añade columna de **IP** (IPv4/IPv6) y el país con su ISO.
 
+### Activar y exportar por país
+
+El checker sabe el país de cada vivo (mmdb offline o juez). Dos funciones usan
+ese dato, ambas con la misma selección de países (varios, o **todos**):
+
+- **Activar en el pool**: pasa al pool del gateway los vivos elegidos y los deja
+  **VIVOS** con el ping y el país medidos, de forma que OpenBullet los consume
+  al instante (`/proxy.txt?alive=1`). Se persisten en su **archivo propio**
+  (`activados.txt`, `--activate-out`) que se recarga al arrancar: **nunca** se
+  toca `proxies.txt` ni `harvested.txt`. Opción **"solo estos"**: deja el pool
+  únicamente con los países elegidos (el resto se desactiva, `Alive=false`); los
+  activados en esa pasada nunca se desactivan.
+  - Efecto lateral útil: al rellenar `Country`, ya funcionan los filtros por
+    país de `/proxy.txt` y las sesiones sticky `user-country-US` del gateway.
+- **Exportar selección**: descarga los vivos del checker filtrando por país,
+  protocolo y formato: `plain` (`ip:puerto`), `proto` (`esquema://ip:puerto`),
+  `full` (línea con ping · anon · país), `ob` (`tipo:ip:puerto:user:pass`),
+  `csv` y `json`.
+
+En el panel, los países de los vivos se pintan como **chips clicables** en la
+sección del checker (sin elegir ninguno = todos) y alimentan tanto el botón
+**Activar en el pool** como los enlaces de descarga. Los países también se
+guardan en disco por sesión (`Paises Validados/<pais>.txt`).
+
+El filtro es **tolerante** (`brasil` = `BR` = `brazil`, `reino unido` = `GB`),
+acepta varios países separados por comas y, en el pool, los valores ISO se
+comparan de forma **exacta** para que `au` (Australia) no capture `AT` (Austria).
+
 ### Números reales medidos (16/10/2026, esta máquina)
 
 150 vivos de un pool real, `Site=https://www.google.com/`,
@@ -236,7 +265,9 @@ filtro "brasil" -> 1 vivo · "united states" -> 14 · "GB" -> 1 · "reino unido"
   - `/proxies?limit=&offset=&sort=ping` (JSON con `checked`, `ping_ms`, `last_check`).
   - `/proxy.txt` exporta la lista de proxies con soporte de filtros:
     - `?alive=1`: Solo proxies actualmente vivos.
-    - `?country=US`: Solo proxies de un país específico.
+    - `?country=US`: Solo proxies de un país específico. Acepta **varios**
+      (`?country=BR,US`), ISO o nombre en inglés/español (`brasil`, `reino unido`).
+      Vacío o `all` = todos.
     - `?max_ping=400`: Solo proxies con latencia $\le$ 400 ms.
     - `?scheme=socks5` (o `?proto=socks5`): Solo proxies con ese protocolo.
     - `?sort=ping`: Ordena por menor latencia primero.
@@ -265,7 +296,13 @@ filtro "brasil" -> 1 vivo · "united states" -> 14 · "GB" -> 1 · "reino unido"
     `/checker/hits`, `/checker/export` y `/checker/countries` se actualizan solos.
     Los `.txt` de la sesión en `Resultados/` **no se reescriben** (quedan como
     registro bruto del run).
-  - `GET /checker/export?proto=all|http|socks4|socks5&format=full|plain` · `GET /checker/countries` · `GET /checker/report`
+  - `GET /checker/export?proto=all|http|socks4|socks5&format=full|plain|proto|ob|csv|json&countries=all|BR,US,brasil` · `GET /checker/countries` (`{countries:{...}, list:[{name,iso,count}]}`) · `GET /checker/report`
+  - `POST /checker/activate` (`X-GW-Panel`): `{"countries":"all|BR,US,brasil","proto":"all|http|socks4|socks5","only":false}`
+    → `{"ok","result":{activated,new,updated,demoted,in_file,countries,file,pool_alive,pool_total,at}}`.
+    Pasa los vivos del checker (filtrados por país/protocolo) al pool **como
+    vivos**, con `PingMs`/`Country` medidos, y los persiste en `activados.txt`.
+    Con `only:true` desactiva del pool lo que no coincida. 400 si no hay vivos
+    que coincidan o no hay job.
   - Salidas en `Resultados/[dd.mm.yy] [hh.mm.ss]/`: `Live_HTTP.txt`, `Live_SOCKS4.txt`, `Live_SOCKS5.txt`, `Paises Validados/<pais>.txt` (con geo) y `Report.json`.
 - **Auto-Fuentes** (sección "Auto-Fuentes" del panel): `/harvest/status`,
   `/harvest/sources`, `/harvest/run`, `/harvest/discover`, `/harvest/purge`,
@@ -591,6 +628,32 @@ node tests\test_panel_ui.mjs     # suite UI boton a boton (300: vm + 2x Chrome h
   - Tests nuevos: `checker_pro_test.go` (12) y `geoip_test.go` (mmdb sintético,
     inválidos, ciclo, y bases reales vía `ESPECTRO_TEST_MMDB`).
     Batería: **19 + 112 + 25 + 300 + 198** (Go) PASS, 0 races, coverage 65.8%.
+- **Activar y exportar por país (16/10/2026)**: el país que ya calculaba el
+  checker se aprovecha para dos funciones nuevas, con la misma selección de
+  países (varios o todos) y filtro tolerante (`brasil` = `BR` = `brazil`,
+  `reino unido` = `GB`):
+  - **Activar en el pool** (`POST /checker/activate` + botón en el panel): los
+    vivos elegidos entran al pool **VIVOS** con ping y país medidos (OpenBullet
+    los ve al instante en `/proxy.txt?alive=1`) y se persisten en su **archivo
+    propio** `activados.txt` (`--activate-out`), que se carga al arrancar:
+    **nunca** toca `proxies.txt` ni `harvested.txt`. `only:true` ("solo estos")
+    desactiva del pool lo que no coincida.
+    Motivo: hasta ahora `p.Country` solo se rellenaba desde el estado, así que
+    `?country=` de `/proxy.txt` y las sesiones sticky `user-country-US` no
+    tenían datos; activar por país los habilita de verdad.
+  - **Exportar por país** (`/checker/export?countries=`) y enlaces del panel con
+    formato `plain`, `proto`, `full`, `ob`, `csv` o `json`.
+  - **Filtro multi-país tolerante** también en `/proxy.txt` y en el gateway
+    (`pickWithCountry`): `?country=BR,US`, `?country=brasil`,
+    `user-country-reino unido`. Los ISO del pool se comparan de forma exacta
+    ("au" no captura "Austria").
+  - Panel: chips clicables de países de los vivos (con ISO y conteo), botón
+    **Activar en el pool**, casilla "solo estos", selector de formato y
+    **Exportar selección**; los enlaces de descarga siguen a la selección.
+  - Tests: `activate_test.go` (8 tests: parseo/tolerancia ISO, activación con
+    persistencia y sin duplicados, "solo estos", filtro por protocolo, export
+    por país y formatos, endpoints) + fase B21 de la suite UI (16 checks).
+    Batería: Go **0 races**, coverage **67.5%**; UI **318 pass / 0 fail**.
 
 ## Estructura
 
@@ -604,6 +667,7 @@ harvest.go     Auto-Fuentes: recoleccion + descubrimiento de fuentes
 harvest_api.go endpoints /harvest/*
 geoip.go       lector MaxMind DB propio (GeoIP offline, sin dependencias).
 masscheck.go   checker masivo (cascada, geo, país, discord, /checker/*)
+activate.go    activar/exportar por país (checker -> pool, activados.txt)
 state.go       estado persistente <lista>.state.json
 api.go         endpoints REST + panel embebido
 import.go      /validate, /import, jaula de rutas
@@ -613,6 +677,6 @@ internal/lic/  formato de licencia (Ed25519 + AES-GCM por máquina)
 lictool/       emisión de licencias (clave privada; uso del vendedor)
 panel.html     panel (embed)
 legacy/        prototipo Python original (referencia)
-tests/         suites Python (19 + 25 + 112) + test_panel_ui.mjs (300, Node)
+tests/         suites Python (19 + 25 + 112) + test_panel_ui.mjs (318, Node; GW_EXE= para probar otro binario)
 build_release.ps1  build de release (garble si está instalado)
 ```

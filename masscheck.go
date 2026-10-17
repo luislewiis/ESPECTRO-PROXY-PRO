@@ -1395,31 +1395,6 @@ func (j *massJob) removeHits(line, proto string) (int, int) {
 	return removed, len(j.hits)
 }
 
-// massExport: vivos por protocolo. format=full usa la linea estilo
-// Espectro (proto | ping | anon | pais); default ip:puerto.
-func (a *App) massExport(proto, format string) (string, bool) {
-	j := a.massCurrent()
-	if j == nil {
-		return "", false
-	}
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	var sb strings.Builder
-	for _, h := range j.hits {
-		if proto != "" && proto != "all" && !protoMatch(h.Proto, proto) {
-			continue
-		}
-		if format == "full" {
-			sb.WriteString(fmt.Sprintf("%-21s | %-5s | %4dms | %s | %s", h.Line,
-				strings.ToUpper(h.Proto), h.Ping, h.Anon, h.Country))
-		} else {
-			sb.WriteString(h.Line)
-		}
-		sb.WriteString("\n")
-	}
-	return sb.String(), true
-}
-
 // massCountries: conteo de vivos por pais (geo activo).
 func (a *App) massCountries() map[string]int {
 	out := map[string]int{}
@@ -1607,12 +1582,21 @@ func (a *App) registerChecker(mux *http.ServeMux) {
 		if proto == "" {
 			proto = "all"
 		}
-		text, ok := a.massExport(proto, format)
+		// countries=all (default) o lista tolerante ("BR,US,brasil").
+		countries := parseCountries(r.URL.Query().Get("countries"))
+		text, ok := a.massExportSel(proto, format, countries)
 		if !ok {
 			http.Error(w, "sin datos (ejecuta un checker masivo primero)", http.StatusNotFound)
 			return
 		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		switch strings.ToLower(strings.TrimSpace(format)) {
+		case "json":
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		case "csv":
+			w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		default:
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		}
 		w.Write([]byte(text))
 	})
 
@@ -1623,7 +1607,10 @@ func (a *App) registerChecker(mux *http.ServeMux) {
 		if !a.leerOK(w, r) {
 			return
 		}
-		jsonOut(w, map[string]interface{}{"countries": a.massCountries()})
+		jsonOut(w, map[string]interface{}{
+			"countries": a.massCountries(),
+			"list":      a.massCountryList(),
+		})
 	})
 
 	mux.HandleFunc("/checker/report", func(w http.ResponseWriter, r *http.Request) {

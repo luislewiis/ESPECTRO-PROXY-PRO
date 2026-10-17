@@ -658,6 +658,32 @@ td.ping{color:var(--faint);white-space:nowrap}
         </table>
       </div>
       <div id="massCountries" class="hint" style="margin-top:8px"></div>
+
+      <!-- activacion + exportacion por pais (activate.go): el checker pasa los
+           vivos elegidos al pool (activados.txt) o los exporta filtrados -->
+      <div id="massCountryTools" style="margin-top:10px;border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:10px 12px;background:rgba(255,255,255,.02)">
+        <div class="hint">Activar / exportar por país — clic en los países (sin elegir ninguno = <b>todos</b>):</div>
+        <div id="massCountryChips" class="chips" style="margin-top:8px"></div>
+        <div class="irow" style="margin-top:10px;align-items:center">
+          <button class="primary" type="button" id="btnMassActivate" onclick="massActivate()"
+            title="Pasa al pool del gateway los vivos elegidos (o todos) y los deja VIVOS con el ping y el país medidos. Se guardan en activados.txt: nunca toca proxies.txt ni harvested.txt.">Activar en el pool</button>
+          <label class="hint" style="display:flex;gap:6px;align-items:center"
+            title="Deja el pool SOLO con los países elegidos: el resto se desactiva (Alive=false). Los activados en esta pasada nunca se desactivan.">
+            <input type="checkbox" id="massOnlySel"> solo estos
+          </label>
+          <select id="massExpFmt" title="Formato de exportación">
+            <option value="plain">ip:puerto</option>
+            <option value="proto">esquema://ip:puerto</option>
+            <option value="full">completo (ping · anon · país)</option>
+            <option value="ob">OpenBullet</option>
+            <option value="csv">csv</option>
+            <option value="json">json</option>
+          </select>
+          <button type="button" id="btnMassExport" onclick="massExportSel()"
+            title="Descarga los vivos del checker de los países elegidos (o todos) en el formato elegido">Exportar selección</button>
+          <span class="hint" id="massActHint"></span>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -1732,11 +1758,8 @@ function massFilterHits(proto){
       if (el) el.classList.toggle('active', p === massHitsProto);
     });
   // con --api-token estas descargas exigen ?token= (el <a> no manda headers)
-  const qt = gwToken() ? '&token=' + encodeURIComponent(gwToken()) : '';
-  const exp = document.getElementById('expFull');
-  if (exp) exp.href = '/checker/export?proto=' + massHitsProto + '&format=full' + qt;
-  const exp2 = document.getElementById('expPlain');
-  if (exp2) exp2.href = '/checker/export?proto=' + massHitsProto + '&format=plain' + qt;
+  // y los enlaces siguen al protocolo y a los países elegidos.
+  massSyncExportLinks();
   // pinta ya con el cache y deja que el servidor confirme (refresh en cola)
   renderMassHits(massHitsCache.filter(h =>
     massHitsProto === 'all' || h.proto === massHitsProto ||
@@ -1788,6 +1811,92 @@ function renderMassHits(hits){
       <td>${esc(x.country || '—')}${x.iso && x.iso !== x.country ? ' <span class="hint">' + esc(x.iso) + '</span>' : ''}</td>
       <td><button class="xbtn" title="Quitar vivo" onclick="massRemoveLine(${i})">×</button></td>
     </tr>`).join('');
+}
+
+/* ---------- activar / exportar por país (activate.go) ----------
+   Los países de los vivos se pintan como chips clicables. Con la selección
+   vacía = TODOS. "Activar en el pool" pasa los vivos elegidos al pool del
+   gateway (VIVOS, con ping y país) y los guarda en activados.txt; "Exportar
+   selección" descarga esos vivos en el formato elegido. */
+let massCountryCache = [];
+const massCountrySel = new Set();
+
+function renderMassCountryChips(list){
+  const box = document.getElementById('massCountryChips');
+  if (!box) return;
+  box.textContent = '';
+  const items = list || [];
+  const names = new Set(items.map(x => x.name));
+  for (const s of [...massCountrySel]) if (!names.has(s)) massCountrySel.delete(s);
+  const mk = (label, value) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'fchip' + (value && massCountrySel.has(value) ? ' active' : '');
+    b.textContent = label;
+    b.onclick = () => massToggleCountry(value);
+    box.appendChild(b);
+  };
+  if (!items.length){
+    const s = document.createElement('span');
+    s.className = 'hint';
+    s.textContent = 'sin países todavía (marca GeoIP en el checker)';
+    box.appendChild(s);
+    return;
+  }
+  items.forEach(x => mk((x.iso ? x.iso + ' ' : '') + x.name + ' · ' + x.count, x.name));
+  mk('todos', '');
+}
+
+function massToggleCountry(name){
+  if (!name) massCountrySel.clear();
+  else if (massCountrySel.has(name)) massCountrySel.delete(name);
+  else massCountrySel.add(name);
+  renderMassCountryChips(massCountryCache);
+  massSyncExportLinks();
+}
+
+// Los enlaces rápidos de descarga siguen al filtro de protocolo y a la
+// selección de países.
+function massExportHref(fmt){
+  const p = new URLSearchParams({proto: massHitsProto || 'all', format: fmt});
+  const sel = [...massCountrySel].join(',');
+  if (sel) p.set('countries', sel);
+  const t = gwToken(); if (t) p.set('token', t);
+  return '/checker/export?' + p.toString();
+}
+function massSyncExportLinks(){
+  const f = document.getElementById('expFull'); if (f) f.setAttribute('href', massExportHref('full'));
+  const p = document.getElementById('expPlain'); if (p) p.setAttribute('href', massExportHref('plain'));
+}
+
+function massExportSel(){
+  const fmt = (document.getElementById('massExpFmt') || {}).value || 'plain';
+  window.open(massExportHref(fmt), '_blank');
+}
+
+async function massActivate(){
+  const hint = document.getElementById('massActHint');
+  if (hint) hint.textContent = 'activando…';
+  try{
+    const r = await jpost('/checker/activate', {
+      countries: [...massCountrySel].join(','),
+      proto: massHitsProto === 'all' ? '' : massHitsProto,
+      only: !!document.getElementById('massOnlySel').checked,
+    });
+    const res = r.result || {};
+    const paises = Object.entries(res.countries || {}).map(([k, v]) => k + ' ' + v).join(' · ');
+    if (hint) hint.textContent = 'activados ' + res.activated +
+      ' (nuevos ' + res.new + ', refrescados ' + res.updated + ')' +
+      (res.demoted ? ' · desactivados ' + res.demoted : '') +
+      ' → pool ' + res.pool_alive + '/' + res.pool_total +
+      (paises ? ' · ' + paises : '') + ' · ' + (res.file || '');
+    toast('Activados ' + res.activated + ' proxies en el pool' + (res.demoted ? ' (desactivados ' + res.demoted + ')' : ''));
+    refreshProxies(); refresh();
+  }catch(e){
+    if (hint) hint.textContent = 'no se pudo activar: ' + (e.message === '400' ?
+      'no hay vivos del checker todavía' : e.message);
+    toast('No se pudo activar (¿hay vivos del checker?)', true);
+  }
 }
 
 // seleccionar/ deseleccionar todo en la tabla de vivos
@@ -1849,6 +1958,9 @@ async function refreshMass(){
         ? 'Países: ' + entries.map(([k, v]) =>
             '<span class="vchip proto">' + esc(k) + ' ' + v + '</span>').join(' ')
         : (st.geo ? 'Sin países todavía' : '');
+      massCountryCache = c.list || [];
+      renderMassCountryChips(massCountryCache);
+      massSyncExportLinks();
     }catch(e){}
 
     if (st.running) setTimeout(refreshMass, 2000);

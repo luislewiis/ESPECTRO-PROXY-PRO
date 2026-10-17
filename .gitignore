@@ -18,6 +18,9 @@ webhook.txt
 harvested.txt
 harvest_sources.json
 
+# Activados por país (checker --activate-out): runtime del gateway
+activados.txt
+
 # Licencias: clave privada del emisor y licencias de clientes
 licencias/
 *.lic

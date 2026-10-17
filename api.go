@@ -488,6 +488,8 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 			maxPing, _ = strconv.Atoi(mp)
 		}
 		country := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("country")))
+		// Acepta varios paises ("BR,US,brasil") y nombres en ingles/espanol.
+		countries := parseCountries(r.URL.Query().Get("country"))
 
 		list := a.AliveList()
 		if len(list) == 0 && !aliveOnly {
@@ -504,7 +506,7 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 				if maxPing > 0 && (p.PingMs <= 0 || p.PingMs > maxPing) {
 					continue
 				}
-				if country != "" && !strings.EqualFold(p.Country, country) {
+				if len(countries) > 0 && !proxyCountryMatch(p, countries) {
 					continue
 				}
 				filtrada = append(filtrada, p)
@@ -667,6 +669,9 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 
 	// Checker masivo (masscheck.go): listas/carpeta + cascada + geo + discord
 	a.registerChecker(mux)
+
+	// Activacion/exportacion por pais (activate.go): checker -> pool
+	a.registerActivate(mux)
 
 	// Auto-Fuentes (harvest.go): recoleccion continua + descubrimiento
 	a.registerHarvest(mux)
