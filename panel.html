@@ -2528,7 +2528,13 @@ function setTab(el){
   el.classList.add('on');
   document.body.dataset.tab = el.dataset.tab;
   try{ localStorage.setItem('espectro.tab', el.dataset.tab); }catch(e){}
-  window.scrollTo({top:0, behavior:'smooth'});
+  // lleva al usuario a la seccion de esa pestana (si no, al principio)
+  const first = document.querySelector('.sec[data-tab="' + el.dataset.tab + '"]');
+  if (first && el.dataset.tab !== 'all'){
+    first.scrollIntoView({behavior:'smooth', block:'start'});
+  } else {
+    window.scrollTo({top:0, behavior:'smooth'});
+  }
 }
 function setMode(m){
   document.body.dataset.mode = m;
