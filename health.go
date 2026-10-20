@@ -328,8 +328,9 @@ func healthCheck(p *Proxy, testURL string) bool {
 // distinto (socks5 -> socks4 -> http). Cuando se agotan los protocolos
 // distintos, el ultimo reintento repite el declarado (golpe de red / proxy
 // lento, al estilo de "Proxy Checker by xRisky", que reintenta 3 veces).
-// Devuelve si respondio, su ping y el esquema con el que respondio.
-func (a *App) checkWithProtocolRotation(p *Proxy, sp checkSpec, retries int) (bool, int, string) {
+// Devuelve si respondio, su ping, el esquema con el que respondio y el
+// cuerpo de la respuesta (para clasificar el anonimato).
+func (a *App) checkWithProtocolRotation(p *Proxy, sp checkSpec, retries int) (bool, int, string, string) {
 	if retries < 0 {
 		retries = 0
 	}
@@ -342,16 +343,61 @@ func (a *App) checkWithProtocolRotation(p *Proxy, sp checkSpec, retries int) (bo
 		trial := *p
 		trial.Scheme = sch
 		trial.AltScheme = ""
-		ok, ping, _, _ := healthCheckSpec(&trial, sp)
+		ok, ping, body, _ := healthCheckSpec(&trial, sp)
 		if ok {
-			return true, ping, sch
+			return true, ping, sch, body
 		}
 		if attempt > 0 {
 			// Reintento aplicado (el panel lo muestra como "reintentos").
 			a.checkRetriesUsed.Add(1)
 		}
 	}
-	return false, 0, p.Scheme
+	return false, 0, p.Scheme, ""
+}
+
+// getRealIP: la IP publica de esta maquina (directo, sin proxy). Se cachea
+// 10 minutos: sirve para saber si un proxy esta siendo TRANSPARENTE (si
+// devuelve nuestra propia IP, nos esta delatando).
+func (a *App) getRealIP() string {
+	a.mu.Lock()
+	ip, at := a.realIP, a.realIPAt
+	a.mu.Unlock()
+	if ip != "" && time.Now().Unix()-at < 600 {
+		return ip
+	}
+	cl := &http.Client{Timeout: 5 * time.Second}
+	resp, err := cl.Get("https://api.ipify.org/")
+	if err != nil {
+		return ip
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 64))
+	v := strings.TrimSpace(string(b))
+	if v == "" || !strings.Contains(v, ".") {
+		return ip
+	}
+	a.mu.Lock()
+	a.realIP, a.realIPAt = v, time.Now().Unix()
+	a.mu.Unlock()
+	return v
+}
+
+// clasificaAnon: nivel de anonimato a partir del cuerpo que devuelve el
+// proxy. Si aparece NUESTRA IP, el proxy es transparente; si devuelve otra,
+// oculta nuestra IP (High). Sin juez no se puede distinguir Elite de High.
+func clasificaAnon(body, realIP string) string {
+	body = strings.TrimSpace(body)
+	if body == "" || realIP == "" {
+		return ""
+	}
+	if strings.Contains(body, realIP) {
+		return "Transparent"
+	}
+	// el cuerpo deberia ser una IP (o un HTML con la IP)
+	if strings.Contains(body, ".") || strings.Contains(body, ":") {
+		return "High"
+	}
+	return ""
 }
 
 // checkThreads: comprobaciones simultaneas del health-check (el panel lo
@@ -404,6 +450,14 @@ func (a *App) runChecksScope(scope string) {
 	a.mu.Unlock()
 	// Contadores del panel: hilos en vuelo y reintentos del ciclo.
 	a.checkRetriesUsed.Store(0)
+	// Para clasificar el anonimato hace falta leer el cuerpo de la respuesta
+	// (y saber nuestra IP real). Solo en modo GET: con CONNECT no hay cuerpo.
+	realIP := ""
+	maxBody := 0
+	if !checkConnect {
+		maxBody = 256
+		realIP = a.getRealIP()
+	}
 
 	// Log de detalle limitado: con listas grandes (24k+) el flood de
 	// "muerto:"/"revivido:" congelaba la consola; se loguean las primeras
@@ -415,6 +469,7 @@ func (a *App) runChecksScope(scope string) {
 		timeout:    timeout,
 		connect:    checkConnect,
 		successKey: a.checkKey,
+		maxBody:    maxBody,
 	}
 	sem := make(chan struct{}, checkThreads)
 	var wg sync.WaitGroup
@@ -433,7 +488,7 @@ func (a *App) runChecksScope(scope string) {
 			// "http" que en realidad es socks5 se pierde con un solo intento.
 			// Si uno de los protocolos responde, se recuerda en AltScheme y
 			// el trafico real pasa por el (EffScheme) sin tocar el .txt.
-			ok, ping, usedScheme := a.checkWithProtocolRotation(p, sp, retries)
+			ok, ping, usedScheme, body := a.checkWithProtocolRotation(p, sp, retries)
 			now := time.Now().Unix()
 			a.mu.Lock()
 			p.Checked = true
@@ -453,6 +508,13 @@ func (a *App) runChecksScope(scope string) {
 			}
 			if ok {
 				p.PingMs = ping
+				// Anonimato: si el proxy devuelve NUESTRA IP es
+				// transparente; si devuelve otra, oculta nuestra IP.
+				// (El nivel Elite/High exacto lo afina el juez del
+				// checker masivo; aqui es una medida real y honesta.)
+				if lvl := clasificaAnon(body, realIP); lvl != "" {
+					p.Anon = lvl
+				}
 				// Protocolo real detectado: si el proxy declaraba otro, se
 				// guarda (persistido en el state) para que el relay lo use.
 				if usedScheme != p.Scheme && p.AltScheme != usedScheme {

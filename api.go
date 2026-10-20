@@ -243,6 +243,7 @@ func (a *App) proxiesSnapshot() []proxyJSON {
 			Country: p.Country, ConnOK: p.ConnOK, ConnKnown: p.ConnKnown,
 			CooldownS: cd,
 			User:      p.User, Password: p.Password,
+			Anon: p.Anon,
 		})
 	}
 	return out

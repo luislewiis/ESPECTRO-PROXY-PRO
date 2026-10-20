@@ -143,6 +143,10 @@ type App struct {
 	// reintentos aplicados en el ultimo ciclo.
 	checkActive      atomic.Int64
 	checkRetriesUsed atomic.Int64
+
+	// IP publica de esta maquina (para clasificar transparencia).
+	realIP   string
+	realIPAt int64
 }
 
 func ExpandGlobs(args []string) []string {
@@ -217,11 +221,12 @@ func (a *App) LoadProxies() int {
 		alt       string
 		connOK    bool
 		connKnown bool
+		anon      string
 	}
 	old := make(map[string]pstate)
 	a.mu.Lock()
 	for _, p := range a.proxies {
-		old[p.Key()] = pstate{p.Alive, p.Fails, p.Checked, p.PingMs, p.LastCheck, p.Country, p.AltScheme, p.ConnOK, p.ConnKnown}
+		old[p.Key()] = pstate{p.Alive, p.Fails, p.Checked, p.PingMs, p.LastCheck, p.Country, p.AltScheme, p.ConnOK, p.ConnKnown, p.Anon}
 	}
 	prev := append([]*Proxy(nil), a.proxies...)
 	disk := a.diskState
@@ -283,6 +288,7 @@ func (a *App) LoadProxies() int {
 				p.AltScheme = st.alt
 				p.ConnOK = st.connOK
 				p.ConnKnown = st.connKnown
+				p.Anon = st.anon
 			} else if st, ok := disk[p.Key()]; ok {
 				// Sin estado en memoria (reload total / arranque): usar disco.
 				p.Alive = st.Alive
@@ -294,6 +300,7 @@ func (a *App) LoadProxies() int {
 				p.AltScheme = st.Alt
 				p.ConnOK = st.ConnOK
 				p.ConnKnown = st.ConnKnown
+				p.Anon = st.Anon
 			}
 			proxies = append(proxies, p)
 		}

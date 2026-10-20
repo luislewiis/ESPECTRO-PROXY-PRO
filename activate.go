@@ -244,6 +244,7 @@ func (a *App) massActivate(cfg massActivateCfg) (massActivateRes, error) {
 		line string
 		ping int
 		pais string // ISO (o nombre si no hubo ISO)
+		anon string // nivel de anonimato medido por el checker (Elite/High/Transparent)
 	}
 	picks := make(map[string]pickInfo, len(hits))
 	lines := make([]string, 0, len(hits))
@@ -275,7 +276,7 @@ func (a *App) massActivate(cfg massActivateCfg) (massActivateRes, error) {
 		if pais == "" {
 			pais = "Desconocido"
 		}
-		picks[k] = pickInfo{line: canon, ping: h.Ping, pais: pais}
+		picks[k] = pickInfo{line: canon, ping: h.Ping, pais: pais, anon: normalizeAnon(h.Anon)}
 		lines = append(lines, canon)
 		res.Countries[pais]++
 	}
@@ -305,6 +306,9 @@ func (a *App) massActivate(cfg massActivateCfg) (massActivateRes, error) {
 			pp.PingMs = info.ping
 			pp.LastCheck = now
 			pp.Country = info.pais
+			if info.anon != "" && info.anon != "Unknown" {
+				pp.Anon = info.anon
+			}
 			res.Updated++
 			continue
 		}
@@ -318,6 +322,7 @@ func (a *App) massActivate(cfg massActivateCfg) (massActivateRes, error) {
 		np.PingMs = info.ping
 		np.LastCheck = now
 		np.Country = info.pais
+		np.Anon = info.anon
 		np.File = path
 		a.proxies = append(a.proxies, np)
 		a.byKey[k] = np

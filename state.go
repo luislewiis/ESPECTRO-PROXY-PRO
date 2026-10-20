@@ -26,6 +26,8 @@ type stateEntry struct {
 	// ConnOK/ConnKnown: si el proxy sabe tunelizar (CONNECT).
 	ConnOK    bool `json:"conn_ok,omitempty"`
 	ConnKnown bool `json:"conn_known,omitempty"`
+	// Anon: nivel de anonimato medido (Elite/High/Transparent).
+	Anon string `json:"anon,omitempty"`
 }
 
 // statePathFor devuelve la ruta del archivo de estado ("" = desactivado).
@@ -111,6 +113,7 @@ func (a *App) saveState() {
 				Alive: p.Alive, Fails: p.Fails, Checked: p.Checked,
 				PingMs: p.PingMs, LastCheck: p.LastCheck, Country: p.Country,
 				Alt: p.AltScheme, ConnOK: p.ConnOK, ConnKnown: p.ConnKnown,
+				Anon: p.Anon,
 			}})
 		}
 		encogio := end < start+stateSaveChunk // el pool se sustituyo a mitad

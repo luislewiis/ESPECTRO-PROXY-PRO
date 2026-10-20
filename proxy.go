@@ -40,6 +40,12 @@ type Proxy struct {
 	// demuestra nada sobre el tunel).
 	ConnOK    bool
 	ConnKnown bool
+
+	// Anon: nivel de anonimato MEDIDO de este proxy (Elite / High /
+	// Transparent / Unknown). Lo fija el checker masivo (que usa el juez) o
+	// el health-check en modo GET (comparando la IP propia con la que
+	// devuelve el proxy). Se persiste con el resto del estado.
+	Anon string
 }
 
 // EffScheme: esquema efectivo para el trafico. Si el health-check detecto

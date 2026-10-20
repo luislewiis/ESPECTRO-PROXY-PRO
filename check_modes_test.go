@@ -148,7 +148,7 @@ func TestHealthCheckRotaProtocolo(t *testing.T) {
 	p := &Proxy{Scheme: "http", Host: ph, Port: pp}
 	sp := checkSpec{url: "http://" + dstHost + ":" + itoa(dstPort) + "/", timeout: 3 * time.Second}
 
-	ok, ping, used := a.checkWithProtocolRotation(p, sp, 3)
+	ok, ping, used, _ := a.checkWithProtocolRotation(p, sp, 3)
 	if !ok {
 		t.Fatal("el proxy (rotulado http, real socks5) deberia responder con la cascada")
 	}
@@ -202,7 +202,7 @@ func TestHealthCheckRotaNoReclasificaSiElDeclaradoSirve(t *testing.T) {
 	a := NewApp(nil, "round-robin", true, 0, "")
 	p := &Proxy{Scheme: "http", Host: ph, Port: pp}
 	sp := checkSpec{url: "http://" + dstHost + ":" + itoa(dstPort) + "/", timeout: 3 * time.Second}
-	ok, _, used := a.checkWithProtocolRotation(p, sp, 3)
+	ok, _, used, _ := a.checkWithProtocolRotation(p, sp, 3)
 	if !ok {
 		t.Fatal("el proxy http deberia responder")
 	}

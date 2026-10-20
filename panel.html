@@ -182,9 +182,59 @@
   .sec{display:block}
   body[data-tab]:not([data-tab="all"]) .sec{display:none}
 
+  /* ---------- modal de recetas (hub de conexiones) ---------- */
+  .veil{
+    position:fixed;inset:0;z-index:80;display:none;place-items:center;
+    background:rgba(4,3,9,.74);backdrop-filter:blur(3px);padding:18px
+  }
+  .veil.on{display:grid}
+  .modal{
+    width:min(920px,96vw);max-height:90vh;overflow:auto;border-radius:16px;
+    border:1px solid rgba(168,85,247,.45);
+    background:linear-gradient(180deg,#120D22,#0A0812);
+    box-shadow:0 30px 90px rgba(0,0,0,.85)
+  }
+  .modal h2{
+    margin:0;padding:14px 18px;font-size:15px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap
+  }
+  .modal h2 small{color:var(--muted);font-weight:400;font-size:12px}
+  .modal h2 .x{
+    margin-left:auto;cursor:pointer;color:var(--muted);font-size:18px;line-height:1;
+    padding:2px 8px;border-radius:8px
+  }
+  .modal h2 .x:hover{color:#fff;background:var(--card2)}
+  .cfgbar{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;
+    padding:14px 18px;border-bottom:1px solid var(--border)
+  }
+  .cfgbar label{display:block;font-size:11px;letter-spacing:.9px;text-transform:uppercase;
+    color:var(--faint);margin-bottom:5px}
+  .cfgbar select,.cfgbar input{width:100%}
+  .mhint{display:block;margin-top:5px;font-size:11px;line-height:1.45;color:var(--faint)}
+  .mhint b{color:var(--muted)}
+  .mbody{padding:14px 18px 18px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .mrec{
+    border:1px solid var(--border);border-radius:11px;padding:11px 12px;background:#0C0917
+  }
+  .mrec .t{display:flex;align-items:center;gap:8px;font-weight:700;font-size:12.5px;margin-bottom:5px}
+  .mrec .d{color:var(--muted);font-size:11.5px;margin-bottom:8px;line-height:1.5}
+  .mrec code{
+    display:block;font:11.5px/1.55 "Cascadia Mono",Consolas,monospace;color:#C9F5FF;
+    background:rgba(34,211,238,.09);border:1px solid rgba(34,211,238,.22);
+    border-radius:7px;padding:7px 9px;word-break:break-all;margin-bottom:8px;white-space:pre-wrap
+  }
+  .mcopy{
+    font-size:11px;padding:4px 9px;border-radius:7px;border:1px solid rgba(34,211,238,.4);
+    color:var(--cyan);background:rgba(34,211,238,.08);cursor:pointer
+  }
+  .mcopy:hover{background:rgba(34,211,238,.18)}
+  .mtag{font-size:10px;letter-spacing:.6px;text-transform:uppercase;padding:2px 7px;
+    border-radius:5px;border:1px solid var(--border);color:var(--muted)}
+  @media (max-width:760px){ .mbody{grid-template-columns:1fr} }
+
   /* responsive: el centro manda. Con poca pantalla la ficha baja debajo
-     (nunca se pisa) y el rail se estrecha; en movil se apila todo. */
-  @media (max-width:1400px){
+     (nunca se pisa) y el rail se estrecha; en movil se apila todo. */  @media (max-width:1400px){
     main.shell{grid-template-columns:236px minmax(0,1fr) 300px;gap:14px}
   }
   @media (max-width:1180px){
@@ -271,6 +321,11 @@
   }
   button.primary:hover{filter:brightness(1.1);color:#fff}
   button.ghost-green:hover{border-color:var(--green);color:var(--green)}
+  button.goldbtn{
+    background:linear-gradient(180deg,#F5C542,#D9A406);border-color:#F5C542;
+    color:#241a00;font-weight:700
+  }
+  button.goldbtn:hover{filter:brightness(1.08);color:#241a00}
   /* --- sistema de ayuda '?' --- */
   .helpq{
     display:inline-grid;place-items:center;width:15px;height:15px;margin-left:6px;
@@ -292,6 +347,10 @@
   .tipcard .k{color:#39d0d8;font-weight:600}
   .tipcard .blk{display:block;margin-top:7px}
   .tipcard.right{left:auto;right:0}
+  /* el chip de las cabeceras de seccion: la tarjeta se abre hacia la izquierda */
+  .sec-head .tipcard{left:auto;right:0;top:calc(100% + 6px)}
+  .sec-head .tipwrap{vertical-align:middle}
+  .frow .k .helpq{margin-left:5px}
   .linkbox{
     display:none;margin-top:14px;background:var(--bg2);
     border:1px solid rgba(43,217,124,.5);border-radius:var(--r);padding:14px 16px;
@@ -681,6 +740,7 @@ td.ping{color:var(--faint);white-space:nowrap}
           data-help2="El pool de proxies: decide qué IP sale y si se mantiene fija.">
       </label>
       <button class="primary" onclick="genLink()" data-help="Construye una URL de proxy estilo DataImpulse con tu sesión, lista para copiar y pegar." data-help2="OpenBullet M2, SilverBullet, el TLS NEW (uTLS) y cualquier cliente proxy.">Generar enlace</button>
+      <button class="goldbtn" onclick="openRecipes()" data-help="Abre el HUB DE CONEXIONES: eliges sesión, país y rotación, y te da las 4 recetas listas para copiar (OB M2, SilverBullet, fuente remota, uTLS-TLS NEW, cURL y Python)." data-help2="El gateway local 8082/823, el pool de proxies y el TLS NEW (uTLS).">🧩 Recetas</button>
       <button class="primary" onclick="copyOBLine()"
         title="Copia host:puerto:sesion:clave, listo para pegar en OB M2 / SilverBullet (tipo HTTP)"
         data-help="Copia al portapapeles la línea exacta que pegas en el Proxy Manager de OB M2 o SilverBullet (tipo HTTP)."
@@ -701,7 +761,7 @@ td.ping{color:var(--faint);white-space:nowrap}
 
   <!-- cargar proxies -->
   <section class="sec" data-tab="pool">
-    <div class="sec-head"><h2>Cargar proxies</h2><div class="line"></div></div>
+    <div class="sec-head"><h2 data-help="Anade proxies al pool: arrastra archivos, pega texto o pega una ruta del servidor. Los proxies se guardan en tu lista (.txt) y en memoria." data-help2="Tus listas locales (proxies.txt) y el pool.">Cargar proxies</h2><div class="line"></div></div>
     <div class="importcard">
       <div class="itabs">
         <button class="itab active" data-t="file" onclick="impTab(this)">Examinar / arrastrar</button>
@@ -755,7 +815,7 @@ td.ping{color:var(--faint);white-space:nowrap}
   <!-- checker masivo -->
   <section class="sec" id="massSection" data-tab="checker">
     <div class="sec-head">
-      <h2>Checker Masivo</h2><div class="line"></div>
+      <h2 data-help="Valida una lista externa con Site + Success Key (validacion de contenido real, estilo Proxy Checker by xRisky) y puede activar los que pasan al pool." data-help2="El judge externo, el GeoIP offline y el pool de proxies.">Checker Masivo</h2><div class="line"></div>
       <div class="dl">
         <a href="/checker/export?proto=all&amp;format=full">↓ vivos (full)</a>
         <a href="/checker/export?proto=http&amp;format=full">↓ http</a>
@@ -932,7 +992,7 @@ td.ping{color:var(--faint);white-space:nowrap}
   <!-- auto-fuentes (harvest.go): recoleccion continua + descubrimiento -->
   <section class="sec" id="harvestSection" data-tab="fuentes">
     <div class="sec-head">
-      <h2>Auto-Fuentes</h2><div class="line"></div>
+      <h2 data-help="Recolector automatico de proxies publicos: los anade al pool y los valida. Escribe en su propio archivo, nunca toca proxies.txt." data-help2="Las fuentes publicas y el archivo propio del recolector.">Auto-Fuentes</h2><div class="line"></div>
       <div class="dl"><a href="/harvest/export">↓ recolectado</a></div>
     </div>
     <div class="importcard">
@@ -975,7 +1035,7 @@ td.ping{color:var(--faint);white-space:nowrap}
   <!-- proxies -->
   <section class="sec" data-tab="pool">
     <div class="sec-head">
-      <h2>Proxies</h2><div class="line"></div>
+      <h2 data-help="La lista viva de proxies: lo que el gateway puede usar ahora mismo. Filtra por estado o por protocolo y borra lo que no quieras (se reescriben los .txt)." data-help2="El pool de proxies, el archivo de estado y los .txt del usuario.">Pool &amp; rutas</h2><div class="line"></div>
       <div class="dl">
         <a href="/proxy.txt">↓ proxy.txt</a>
         <a href="/proxy.txt?format=ob">↓ formato OB</a>
@@ -986,6 +1046,10 @@ td.ping{color:var(--faint);white-space:nowrap}
         <button class="fchip active" data-f="all" onclick="setFilter(this)">Todos <b id="nAll">0</b></button>
         <button class="fchip" data-f="alive" onclick="setFilter(this)">Vivos <b id="nAlive">0</b></button>
         <button class="fchip" data-f="dead" onclick="setFilter(this)">Muertos <b id="nDead">0</b></button>
+        <span class="fchipsep"></span>
+        <button class="fchip" data-p="http" onclick="setProtoFilter(this)" data-help="Filtra la tabla por protocolo: solo proxies HTTP (los que aceptan GET y CONNECT)." data-help2="El pool de proxies.">HTTP</button>
+        <button class="fchip" data-p="socks5" onclick="setProtoFilter(this)" data-help="Filtra la tabla por protocolo: solo SOCKS5 (tunel sin DNS leak)." data-help2="El pool de proxies.">SOCKS5</button>
+        <button class="fchip" data-p="socks4" onclick="setProtoFilter(this)" data-help="Filtra la tabla por protocolo: solo SOCKS4/SOCKS4a (en 4a el proxy remoto resuelve el DNS)." data-help2="El pool de proxies.">SOCKS4</button>
         <input type="text" id="search" placeholder="Buscar host, puerto o esquema…" oninput="renderProxies()">
         <button class="fchip" type="button" id="btnDelDead" onclick="removeScope('dead')"
           title="Borra de TODA la lista los proxies muertos y reescribe los .txt en disco">borrar muertos</button>
@@ -1007,7 +1071,7 @@ td.ping{color:var(--faint);white-space:nowrap}
 
   <!-- info de arranque: antes salia en la consola, ahora vive en el panel -->
   <section class="sec" data-tab="log">
-    <div class="sec-head"><h2>Info de arranque</h2><div class="line"></div></div>
+    <div class="sec-head"><h2 data-help="Resumen de como arranco el gateway: puertos, endpoint, archivo de estado, version y licencia." data-help2="El arranque del programa.">Info de arranque</h2><div class="line"></div></div>
     <div class="term">
       <div class="bar"><i></i><i></i><i></i><span class="t">ESPECTRO PROXY PRO — boot</span></div>
       <div id="bootInfo">cargando…</div>
@@ -1016,7 +1080,7 @@ td.ping{color:var(--faint);white-space:nowrap}
 
   <!-- log -->
   <section class="sec" data-tab="log">
-    <div class="sec-head"><h2>Log</h2><div class="line"></div></div>
+    <div class="sec-head"><h2 data-help="Log en vivo del gateway: health-check, proxys muertos/revividos, reconfiguraciones y errores." data-help2="Todo lo que hace el gateway en tiempo real.">Log</h2><div class="line"></div></div>
     <div class="term">
       <div class="bar"><i></i><i></i><i></i><span class="t">proxy-gateway — tiempo real</span></div>
       <div id="logs">conectando…</div>
@@ -1025,7 +1089,7 @@ td.ping{color:var(--faint);white-space:nowrap}
 
   <!-- ============ GUIAS: hub de conexiones ============ -->
   <section class="sec" data-tab="guias">
-    <div class="sec-head"><h2>Guías &amp; recetas</h2><div class="line"></div></div>
+    <div class="sec-head"><h2 data-help="Las cuatro formas de conectar con el gateway (OB M2, fuente remota, uTLS-TLS NEW y cURL/Python), con los puertos y la sesion reales para copiar." data-help2="El gateway local 8082/823 y el pool de proxies.">Guías &amp; recetas</h2><div class="line"></div></div>
     <div class="importcard" style="padding:14px 16px">
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px">
 
@@ -1090,7 +1154,7 @@ td.ping{color:var(--faint);white-space:nowrap}
 
   <!-- ============ CONFIGURACION ============ -->
   <section class="sec" data-tab="config">
-    <div class="sec-head"><h2>Configuración</h2><div class="line"></div></div>
+    <div class="sec-head"><h2 data-help="Ajustes del gateway que se aplican en caliente y se guardan en settings.json: modo del chequeo, validacion GET/CONNECT, reintentos, intervalo, estrategia y Auto-Fuentes." data-help2="El archivo settings.json, el health-check y el pool de proxies.">Configuración</h2><div class="line"></div></div>
     <div class="importcard" style="padding:14px 16px">
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
 
@@ -1164,6 +1228,71 @@ td.ping{color:var(--faint);white-space:nowrap}
   </section>
   </div><!-- /.center -->
 
+  <!-- ============ MODAL: hub de conexiones (recetas) ============ -->
+  <div class="veil" id="recipeVeil" onclick="if(event.target===this)closeRecipes()">
+    <div class="modal">
+      <h2>🔗 Hub de conexiones · Generar enlace (estilo DataImpulse)
+        <small>elige para qué lo usas; cada receta se copia al portapapeles. El gateway habla proxy HTTP estándar hacia el cliente y todo sale por el mismo pool: elige proxy, rota, reintenta y fija la IP si pides sesión.</small>
+        <span class="x" onclick="closeRecipes()">&times;</span>
+      </h2>
+
+      <div class="cfgbar">
+        <div>
+          <label>Nombre de sesión (sticky)</label>
+          <input type="text" id="rcSess" placeholder="MI_SESION" oninput="renderRecipes()">
+          <small class="mhint">Todo lo que salga con este nombre usa la <b>misma IP</b> (como DataImpulse). Usa nombres <b>sin guiones</b>: el gateway los usa como separadores.</small>
+        </div>
+        <div>
+          <label>Filtro de país (geo-targeting)</label>
+          <select id="rcCountry" onchange="renderRecipes()">
+            <option value="">Sin filtro (cualquier país)</option>
+          </select>
+          <small class="mhint">Añade <b>-country-XX</b> al usuario: el gateway solo usará proxies de ese país (los medidos por GeoIP).</small>
+        </div>
+        <div>
+          <label>Rotación forzada</label>
+          <select id="rcRotate" onchange="renderRecipes()">
+            <option value="0">Desactivada (IP fija por sesión)</option>
+            <option value="1">Activada (-rotate, IP nueva por petición)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="mbody">
+        <div class="mrec">
+          <div class="t">OpenBullet M2 &amp; SilverBullet <span class="mtag">proxy</span>
+            <span class="mcopy" onclick="copyRecipe('mOb')">Copiar</span></div>
+          <div class="d">Pega en <b>Proxy Manager → Add proxy</b> (tipo HTTP). El gateway rota y reintenta; OB solo chequea 1 proxy en vez de 12.000.</div>
+          <code id="mOb">—</code>
+        </div>
+        <div class="mrec">
+          <div class="t">Fuente remota (lista filtrada) <span class="mtag">URL</span>
+            <span class="mcopy" onclick="copyRecipe('mSource')">Copiar</span></div>
+          <div class="d">Si prefieres que OB gestione la lista: una URL con los vivos más rápidos, ya paginados y filtrados por el gateway.</div>
+          <code id="mSource">—</code>
+        </div>
+        <div class="mrec">
+          <div class="t">uTLS · TLS NEW v9 <span class="mtag">entorno</span>
+            <span class="mcopy" onclick="copyRecipe('mEnv')">Copiar</span></div>
+          <div class="d">El TLS NEW <b>no es proxy</b>: habla <b>x-tls-url</b> y no acepta CONNECT. Se encadena por variables de entorno para que su uTLS salga por el pool.</div>
+          <code id="mEnv">—</code>
+        </div>
+        <div class="mrec">
+          <div class="t">cURL · Python · Postman <span class="mtag">proxy</span>
+            <span class="mcopy" onclick="copyRecipe('mCurl')">Copiar</span></div>
+          <div class="d">Prueba manual del túnel. TLS de extremo a extremo, sin interceptar nada (el gateway no descifra).</div>
+          <code id="mCurl">—</code>
+        </div>
+        <div class="mrec" style="grid-column:1/-1">
+          <div class="t">Python · requests / Node <span class="mtag">snippet</span>
+            <span class="mcopy" onclick="copyRecipe('mPy')">Copiar</span></div>
+          <div class="d">Para tus scripts: el diccionario <code style="display:inline;padding:1px 4px">proxies</code> que usan requests/axios/undici.</div>
+          <code id="mPy">—</code>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ FICHA DEL PROXY ============ -->
   <aside class="ficha">
     <h3>Ficha de proxy</h3>
@@ -1183,6 +1312,7 @@ td.ping{color:var(--faint);white-space:nowrap}
 
 <script>
 let filter = 'all';
+let protoFilter = '';
 let proxyData = [];
 let proxyOffset = 0;
 let proxyTotal = 0;
@@ -1274,16 +1404,49 @@ function initHelp(){
     card.innerHTML = '<b>QUÉ HACE:</b> ' + el.dataset.help +
       (el.dataset.help2 ? '<span class="blk"><b>SE CONECTA CON:</b> <span class="k">' + el.dataset.help2 + '</span></span>' : '');
     const parent = el.parentNode;
+    if (parent && parent.classList.contains('sec-head')){
+      const wrap = document.createElement('span');
+      wrap.className = 'tipwrap';
+      wrap.appendChild(q);
+      wrap.appendChild(card);
+      parent.insertBefore(wrap, el.nextSibling);
+      return;
+    }
     parent.insertBefore(wrap, el);
     wrap.appendChild(el);
     wrap.appendChild(q);
     wrap.appendChild(card);
   });
 }
+// helpChip: chip '?' con tarjeta, para las filas de la ficha (DOM API).
+function helpChip(help, help2){
+  const wrap = document.createElement('span');
+  wrap.className = 'tipwrap';
+  const q = document.createElement('span');
+  q.className = 'helpq';
+  q.textContent = '?';
+  q.setAttribute('tabindex', '0');
+  const card = document.createElement('span');
+  card.className = 'tipcard';
+  card.innerHTML = '<b>QUÉ HACE:</b> ' + help +
+    (help2 ? '<span class="blk"><b>SE CONECTA CON:</b> <span class="k">' + help2 + '</span></span>' : '');
+  wrap.appendChild(q);
+  wrap.appendChild(card);
+  return wrap;
+}
 function setFilter(btn){
   document.querySelectorAll('.fchip[data-f]').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   filter = btn.dataset.f;
+  renderProxies();
+}
+// setProtoFilter: filtra la tabla por protocolo (HTTP / SOCKS5 / SOCKS4).
+// "socks4" incluye socks4a (mismo criterio que el checker y el export OB).
+function setProtoFilter(btn){
+  const p = btn.dataset.p;
+  protoFilter = (protoFilter === p) ? '' : p;
+  document.querySelectorAll('.fchip[data-p]').forEach(b => b.classList.toggle('active', b.dataset.p === protoFilter));
+  proxyOffset = 0;
   renderProxies();
 }
 function pgPrev(){
@@ -1299,6 +1462,12 @@ function renderProxies(){
   const rows = proxyData.map((p, i) => ({p, i})).filter(({p}) => {
     if (filter === 'alive' && !p.alive) return false;
     if (filter === 'dead' && p.alive) return false;
+    if (protoFilter){
+      const sch = p.effective || p.scheme;
+      if (protoFilter === 'socks4'){
+        if (sch !== 'socks4' && sch !== 'socks4a') return false;
+      } else if (sch !== protoFilter) return false;
+    }
     if (q && !(p.host + ':' + p.port + ' ' + p.scheme).toLowerCase().includes(q)) return false;
     return true;
   });
@@ -2613,12 +2782,13 @@ function showFicha(i){
 
   const box = document.createElement('div');
   box.style.marginTop = '8px';
-  const row = (k, v) => {
+  const row = (k, v, help, help2) => {
     const r = document.createElement('div');
     r.className = 'frow';
     const kk = document.createElement('span');
     kk.className = 'k';
     kk.textContent = k;
+    if (help) kk.appendChild(helpChip(help, help2));
     const vv = document.createElement('span');
     vv.className = 'v';
     vv.textContent = v;
@@ -2626,13 +2796,30 @@ function showFicha(i){
     box.appendChild(r);
   };
   const decl = (p.alt && p.alt !== p.scheme) ? p.scheme + ' (declarado) -> ' + p.alt + ' (real)' : p.scheme;
-  row('Protocolo', decl);
-  row('Ping', p.ping_ms > 0 ? p.ping_ms + ' ms' : '-');
-  row('Pais', p.country ? p.country : 'sin GeoIP');
-  row('Tunel CONNECT', p.conn_known ? (p.conn_ok ? 'si' : 'no') : 'sin medir');
-  row('Fallos seguidos', String(p.fails));
-  row('Enfriamiento', p.cooldown_s > 0 ? p.cooldown_s + ' s' : 'ninguno');
-  row('Ultimo check', p.last_check ? ago(p.last_check) : 'nunca');
+  row('Protocolo', decl,
+    'El protocolo con el que el proxy responde de verdad. Si difiere del declarado, el health-check lo ha detectado probando la cascada (socks5 -> socks4 -> http) y el trafico usa el bueno.',
+    'El pool de proxies y el health-check.');
+  row('Ping', p.ping_ms > 0 ? p.ping_ms + ' ms' : '-',
+    'Tiempo hasta la primera respuesta del proxy (TTFB) en la ultima comprobacion.',
+    'El health-check y el judge externo.');
+  row('Pais', p.country ? p.country : 'sin GeoIP',
+    'Pais del proxy segun la base GeoIP offline (o el que devolvio el checker).',
+    'La base MaxMind local y las activaciones por pais.');
+  row('Anonimato', p.anon ? p.anon : 'sin medir',
+    'Nivel de anonimato MEDIDO: Elite / High / Transparent. Transparent = el proxy devuelve NUESTRA IP (nos delata). Lo fija el checker masivo (con juez) o el health-check comparando con nuestra IP real.',
+    'El juez del checker masivo y nuestra IP publica.');
+  row('Tunel CONNECT', p.conn_known ? (p.conn_ok ? 'si' : 'no') : 'sin medir',
+    'Si el proxy sabe TUNELIZAR (CONNECT). Es lo que necesita OpenBullet para abrir https: un proxy que solo responde GET no sirve.',
+    'El health-check en modo CONNECT y el trafico real del gateway.');
+  row('Fallos seguidos', String(p.fails),
+    'Fallos seguidos en trafico real. Con 3, el gateway lo marca muerto y lo aparta de la rotacion.',
+    'El trafico que pasa por el gateway.');
+  row('Enfriamiento', p.cooldown_s > 0 ? p.cooldown_s + ' s' : 'ninguno',
+    'Tiempo que le queda al proxy apartado de la rotacion para que no repita el mismo timeout con cada bot.',
+    'La rotacion del pool.');
+  row('Ultimo check', p.last_check ? ago(p.last_check) : 'nunca',
+    'Cuando se comprobo este proxy por ultima vez.',
+    'El health-check.');
   body.appendChild(box);
 
   const fob = document.createElement('div');
@@ -2769,6 +2956,76 @@ function updateGuias(st){
   const curl = 'curl -x http://' + hostPort + ' https://api.ipify.org';
   const e4 = el('rcCurl'); if (e4) e4.textContent = curl;
 }
+
+// ================= HUB DE CONEXIONES (modal de recetas) =================
+function gwHostPort(){
+  const gw = (window.lastStats && window.lastStats.gateway) || '127.0.0.1:8082';
+  return gw.replace(/^https?:\/\//, '');
+}
+function recipeUser(){
+  const sess = (el('rcSess') && el('rcSess').value || '').trim();
+  const cc = (el('rcCountry') && el('rcCountry').value || '').trim().toUpperCase();
+  const rot = el('rcRotate') && el('rcRotate').value === '1';
+  let u = 'user';
+  if (sess) u += '-session-' + sess;
+  if (cc) u += '-country-' + cc;
+  if (rot) u += '-rotate';
+  return u;
+}
+function renderRecipes(){
+  const hp = gwHostPort();
+  const port = hp.replace(/^.*:/, '');
+  const user = recipeUser();
+  const tok = gwToken();
+  const tokq = tok ? '&token=' + encodeURIComponent(tok) : '';
+  const set = (id, v) => { const e = el(id); if (e) e.textContent = v; };
+  set('mOb', port + ':' + user + ':clave');
+  set('mSource', location.origin + '/proxy.txt?alive=1&sort=ping&max=300' + tokq);
+  set('mEnv', "$env:HTTPS_PROXY='http://" + user + ":clave@" + hp + "'");
+  set('mCurl', 'curl -x http://' + user + ':clave@' + hp + ' https://api.ipify.org');
+  set('mPy', "proxies = {\n  'http':  'http://" + user + ":clave@" + hp + "',\n  'https': 'http://" + user + ":clave@" + hp + "'\n}");
+}
+function openRecipes(){
+  const v = el('recipeVeil');
+  if (!v) return;
+  const s = el('sess');
+  const rs = el('rcSess');
+  if (s && rs && !rs.value) rs.value = s.value;
+  fillCountries();
+  renderRecipes();
+  v.classList.add('on');
+  const rs2 = el('rcSess');
+  if (rs2) rs2.focus();
+}
+function closeRecipes(){ const v = el('recipeVeil'); if (v) v.classList.remove('on'); }
+function copyRecipe(id){
+  const e = el(id);
+  if (!e) return;
+  navigator.clipboard.writeText(e.textContent.trim()).then(
+    () => toast('Copiado: ' + e.textContent.trim().slice(0,70)),
+    () => toast('No se pudo copiar', true));
+}
+// fillCountries: los paises que hay en el pool (GeoIP) + los mas comunes.
+function fillCountries(){
+  const sel = el('rcCountry');
+  if (!sel || sel.dataset.filled) return;
+  sel.dataset.filled = '1';
+  const geo = (window.lastStats && window.lastStats.geo_top) || [];
+  const extra = ['US','DE','BR','NL','GB','FR','ES','AR','MX','CO','CL','PE','CA','IT','ES','RU','TR','IN','JP','SG'];
+  const set = new Set(extra);
+  geo.forEach(g => set.add(String(g.country || '').toUpperCase()));
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Sin filtro (cualquier país)</option>';
+  [...set].filter(Boolean).sort().forEach(cc => {
+    const o = document.createElement('option');
+    o.value = cc; o.textContent = cc;
+    sel.appendChild(o);
+  });
+  sel.value = cur;
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeRecipes();
+});
 
 setInterval(refresh, 4000);
 setInterval(refreshProxies, 15000);

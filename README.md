@@ -169,7 +169,19 @@ medidos**: si algo no se ha medido, se muestra "—" en vez de inventarlo.
   explica **QUÉ HACE** y **SE CONECTA CON** (con ratón o con Tab).
 - **Guías & recetas**: las 4 formas de enganchar el gateway (OB M2 / SilverBullet,
   fuente remota, uTLS-TLS NEW, cURL/Python) con el **puerto y la sesión reales**
-  ya escritos, y botón de copiar.
+  ya escritos, y botón de copiar. Además, el botón **🧩 Recetas** abre el
+  **hub de conexiones** (modal estilo DataImpulse) con configurador de
+  **sesión sticky**, **filtro de país** (`-country-XX`) y **rotación forzada**
+  (`-rotate`), y las 4 recetas + snippet de Python listas para copiar.
+- **Pool & rutas**: la tabla del pool con filtros por **estado** (Todos/Vivos/
+  Muertos) y por **protocolo** (HTTP/SOCKS5/SOCKS4, con SOCKS4 incluyendo 4a).
+- **Anonimato por proxy**: el nivel real medido (Elite/High/Transparent) queda
+  **persistido por proxy** (lo fija el checker masivo con su juez, o el
+  health-check comparando la IP que devuelve el proxy con la nuestra) y se ve
+  en la ficha lateral.
+- **Sistema de ayuda `?`**: cada control **y cada cabecera de sección** lleva un
+  chip `?` con una tarjeta que explica **QUÉ HACE** y **SE CONECTA CON** (con
+  ratón o con Tab). En la ficha, cada dato tiene su propia explicación.
 - **Configuración** (pestaña propia): modo del chequeo, validación GET/CONNECT,
   reintentos, intervalo, estrategia, URL de validación, clave de éxito, Auto-Fuentes
   e intervalo. Se aplican **en caliente** y se guardan en `settings.json` (junto al
