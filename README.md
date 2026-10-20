@@ -85,6 +85,61 @@ Línea de proxy para pegar en OB M2 / SilverBullet (una sola):
 Con `--http-port 8082,823` esos mismos proxies valen por **cualquiera** de los
 puertos (los checkers nunca marcan ninguno como muerto).
 
+### Fuente remota en OB M2 / SilverBullet: usa tope de líneas
+
+Dos formas de conectar OB con el gateway, según quién gestione la rotación:
+
+| Modo | Qué pegas en OB | Quién rota / reintenta |
+|---|---|---|
+| **A (recomendado)** | una sola línea `127.0.0.1:823` (o `user-session-123:clave@127.0.0.1:823`) | el gateway: rota, reintenta en milisegundos y mantiene la sesión sticky. OB solo chequea **1** proxy |
+| **B** | fuente remota `/proxy.txt?alive=1&sort=ping&max=300` | OB: gestiona 300 proxies y los marca muertos por su cuenta |
+
+En `Settings → RemoteProxySources` (OB M2) el campo se compone de `Url`,
+`Pattern` y `Output` (los mismos que ya usas con DataImpulse), con `Type: 0`
+(HTTP):
+
+| Campo | Valor |
+|---|---|
+| `Url` | `http://127.0.0.1:8081/proxy.txt?alive=1&sort=ping&max=300` |
+| `Pattern` | `([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+)` |
+| `Output` | `[1]` |
+
+En SilverBullet basta la URL en la lista de *Proxy Sources*, tipo `HTTP`.
+Si activas `--api-token`, añade `&token=TU_TOKEN` a la URL.
+
+### TLS_NEW_v9 (uTLS "TLS GRUPO VIP"): qué es y cómo encadenarlo
+
+`TLS_NEW_v9.exe` **no es un proxy HTTP**: es una GUI (Tkinter) que levanta una
+API local de *fetch* (FastAPI/uvicorn en `127.0.0.1:9000`) y hace cada petición
+con `curl_cffi` (huella TLS de Chrome/Safari, "bypass WAF uTLS"). Contrato
+verificado el 20/10/2026:
+
+- `GET /` con la cabecera **`x-tls-url: https://destino/...`** (o `x-tp-url`)
+  devuelve estado + cabeceras + cuerpo del destino.
+- **No soporta `CONNECT`**: un cliente proxy clásico (OB, SilverBullet,
+  `curl -x`) recibe `404 {"detail":"Not Found"}`. Por eso OB **no puede** usarlo
+  como proxy directamente.
+- **Sí acepta un proxy upstream por entorno** (lo lee `curl_cffi`), que es la
+  vía para darle las IPs del pool:
+
+```powershell
+$env:HTTP_PROXY  = 'http://user-session-mibot:p@127.0.0.1:823'
+$env:HTTPS_PROXY = $env:HTTP_PROXY
+$env:ALL_PROXY   = $env:HTTP_PROXY
+Start-Process 'C:\ruta\TLS_NEW_v9.exe'
+```
+
+Así cada fetch sale por el gateway (`CONNECT` + `Proxy-Authorization`, que el
+gateway ya interpreta como `user-session-123`, `user-country-US` o
+`user-rotate`): **uTLS + IPs del pool**. El usuario se fija al arrancar la
+herramienta, no por petición: `user-rotate` para rotar en cada request,
+`user-session-X` para IP fija.
+
+> **Riesgo medido:** si el upstream falla, el TLS reintenta 3 veces y **luego va
+> directo**, devolviendo `200` con tu IP real (fuga silenciosa). Corre el
+> gateway con `--check-interval 60 --check-connect` y comprueba en el panel que
+> el pool no está vacío antes de confiar en la cadena.
+
 ## Auto-Fuentes (`--harvest`): recolección continua sin intervención
 
 El gateway deja de depender de que tú pegues listas: recolecta solo, cada
@@ -280,6 +335,10 @@ filtro "brasil" -> 1 vivo · "united states" -> 14 · "GB" -> 1 · "reino unido"
       `scheme=socks4` **incluye** `socks4a` (igual que el checker y el export OB,
       que no distinguen 4a); `scheme=socks4a` pide solo 4a.
     - `?sort=ping`: Ordena por menor latencia primero.
+    - `?max=500` (alias `?limit=`): corta la lista a N líneas **después** de
+      ordenar (con `sort=ping` se queda con las N más rápidas; techo duro
+      200.000). Es el parámetro que evita que OB/SilverBullet se cuelguen con la
+      lista completa: ver "Fuente remota" más arriba.
     - `?format=ob`: Formato nativo OpenBullet (`tipo:host:puerto:user:pass`).
     - `?format=full`: Formato URI completo (`scheme://host:port`).
     - `?format=plain`: Formato clásico `host:puerto` (default).

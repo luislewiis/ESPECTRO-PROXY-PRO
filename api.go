@@ -21,6 +21,11 @@ import (
 //go:embed panel.html
 var panelHTML string
 
+// maxProxyTxtLines es el techo duro de lineas que /proxy.txt entrega aunque
+// pidan ?max= mas grande: evita que una fuente remota mal configurada vuelque
+// el pool completo (100k+) en el ProxyManager de OB y lo congele.
+const maxProxyTxtLines = 200000
+
 type proxyJSON struct {
 	Scheme string `json:"scheme"`
 	Host   string `json:"host"`
@@ -493,6 +498,25 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 		}
 		// Acepta varios paises ("BR,US,brasil") y nombres en ingles/espanol.
 		countries := parseCountries(r.URL.Query().Get("country"))
+		// Tope de lineas entregadas (?max=N). OB M2 y SilverBullet meten la
+		// lista entera en su ProxyManager y la re-chequean proxy a proxy: con
+		// 12k+ lineas la UI se congela y el runner parece "caerse" antes de
+		// arrancar. Recomendado para fuentes remotas:
+		//   /proxy.txt?alive=1&sort=ping&max=500
+		// 0 = sin tope (comportamiento historico). Se aplica DESPUES de
+		// ordenar, para que el tope se quede con los de menor ping.
+		maxOut := 0
+		if v := r.URL.Query().Get("max"); v != "" {
+			maxOut, _ = strconv.Atoi(v)
+		} else if v := r.URL.Query().Get("limit"); v != "" {
+			maxOut, _ = strconv.Atoi(v)
+		}
+		if maxOut < 0 {
+			maxOut = 0
+		}
+		if maxOut > maxProxyTxtLines {
+			maxOut = maxProxyTxtLines
+		}
 
 		// Filtrado con a.mu TOMADO: Alive/Checked/PingMs/Country los escribe el
 		// health-check en caliente; leerlos sin lock era una carrera real
@@ -537,6 +561,10 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 			})
 		}
 		a.mu.Unlock()
+		// El tope se aplica sobre la lista ya ordenada: O(1) y fuera del lock.
+		if maxOut > 0 && len(list) > maxOut {
+			list = list[:maxOut]
+		}
 		var sb strings.Builder
 		for _, p := range list {
 			switch format {
@@ -550,6 +578,9 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 			sb.WriteString("\n")
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		// OB1/SilverBullet re-descargan la fuente al recargar; que ningun
+		// intermediario sirva una copia vieja de la lista.
+		w.Header().Set("Cache-Control", "no-store")
 		w.Write([]byte(sb.String()))
 	})
 
