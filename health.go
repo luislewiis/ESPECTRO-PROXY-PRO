@@ -329,7 +329,7 @@ func healthCheck(p *Proxy, testURL string) bool {
 // distintos, el ultimo reintento repite el declarado (golpe de red / proxy
 // lento, al estilo de "Proxy Checker by xRisky", que reintenta 3 veces).
 // Devuelve si respondio, su ping y el esquema con el que respondio.
-func checkWithProtocolRotation(p *Proxy, sp checkSpec, retries int) (bool, int, string) {
+func (a *App) checkWithProtocolRotation(p *Proxy, sp checkSpec, retries int) (bool, int, string) {
 	if retries < 0 {
 		retries = 0
 	}
@@ -346,9 +346,17 @@ func checkWithProtocolRotation(p *Proxy, sp checkSpec, retries int) (bool, int, 
 		if ok {
 			return true, ping, sch
 		}
+		if attempt > 0 {
+			// Reintento aplicado (el panel lo muestra como "reintentos").
+			a.checkRetriesUsed.Add(1)
+		}
 	}
 	return false, 0, p.Scheme
 }
+
+// checkThreads: comprobaciones simultaneas del health-check (el panel lo
+// muestra como "hilos activos / total").
+const checkThreads = 64
 
 // RunChecks = chequeo completo de TODA la lista (boton "Check ahora",
 // POST /check, --check-now). Los muertos verificados se revisan aqui.
@@ -392,7 +400,10 @@ func (a *App) runChecksScope(scope string) {
 	if retries < 0 {
 		retries = 0
 	}
+	checkConnect := a.checkConnect
 	a.mu.Unlock()
+	// Contadores del panel: hilos en vuelo y reintentos del ciclo.
+	a.checkRetriesUsed.Store(0)
 
 	// Log de detalle limitado: con listas grandes (24k+) el flood de
 	// "muerto:"/"revivido:" congelaba la consola; se loguean las primeras
@@ -402,10 +413,10 @@ func (a *App) runChecksScope(scope string) {
 	sp := checkSpec{
 		url:        a.testURL,
 		timeout:    timeout,
-		connect:    a.checkConnect,
+		connect:    checkConnect,
 		successKey: a.checkKey,
 	}
-	sem := make(chan struct{}, 64)
+	sem := make(chan struct{}, checkThreads)
 	var wg sync.WaitGroup
 	for _, p := range checkPs {
 		wg.Add(1)
@@ -413,6 +424,8 @@ func (a *App) runChecksScope(scope string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			a.checkActive.Add(1)
+			defer a.checkActive.Add(-1)
 			// Reintentos estilo xRisky con ROTACION DE PROTOCOLO: el primer
 			// intento usa el esquema declarado y cada reintento prueba otro
 			// protocolo distinto (socks5 -> socks4 -> http). Motivo: en las
@@ -420,12 +433,24 @@ func (a *App) runChecksScope(scope string) {
 			// "http" que en realidad es socks5 se pierde con un solo intento.
 			// Si uno de los protocolos responde, se recuerda en AltScheme y
 			// el trafico real pasa por el (EffScheme) sin tocar el .txt.
-			ok, ping, usedScheme := checkWithProtocolRotation(p, sp, retries)
+			ok, ping, usedScheme := a.checkWithProtocolRotation(p, sp, retries)
 			now := time.Now().Unix()
 			a.mu.Lock()
 			p.Checked = true
 			p.LastCheck = now
 			p.PingMs = 0
+			// "Â¿Tuneliza CONNECT?" para la ficha del proxy:
+			//  - socks: el chequeo YA es un tunel real -> se sabe seguro.
+			//  - http con --check-connect: el chequeo ES un CONNECT -> se sabe.
+			//  - http con GET: un GET ok no demuestra que tunelice -> desconocido.
+			tunelProbado := usedScheme != "http" || checkConnect
+			if tunelProbado {
+				p.ConnKnown = true
+				p.ConnOK = ok
+			} else {
+				p.ConnKnown = false
+				p.ConnOK = false
+			}
 			if ok {
 				p.PingMs = ping
 				// Protocolo real detectado: si el proxy declaraba otro, se

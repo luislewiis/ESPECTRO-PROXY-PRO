@@ -85,7 +85,7 @@ def start_helper(script, *args):
 def start_gw(listfile, http_port, api_port, *extra, stdout=None):
     cmd = [GW, listfile, "--http-port", str(http_port), "--api-port", str(api_port),
            "--check-interval", "0", "--test-url", "http://" + TARGET + "/",
-           "--no-browser", "--no-state", "--no-notify"]
+           "--no-browser", "--no-state", "--no-notify", "--no-settings"]
     cmd += list(extra)
     out = stdout if stdout else subprocess.DEVNULL
     p = subprocess.Popen(cmd, cwd=TEMP, stdout=out, stderr=out)
@@ -95,7 +95,7 @@ def start_gw(listfile, http_port, api_port, *extra, stdout=None):
 def start_cli(listfile, *extra, stdout_file, stderr_file):
     fo = open(stdout_file, "w")
     fe = open(stderr_file, "w")
-    p = subprocess.Popen([GW, listfile, "--no-state", "--no-notify", *extra], cwd=TEMP, stdout=fo, stderr=fe)
+    p = subprocess.Popen([GW, listfile, "--no-state", "--no-notify", "--no-settings", *extra], cwd=TEMP, stdout=fo, stderr=fe)
     procs.append(p)
     return p, fo, fe
 

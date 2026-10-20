@@ -150,6 +150,32 @@ herramienta, no por petición: `user-rotate` para rotar en cada request,
 > gateway con `--check-interval 60 --check-connect` y comprueba en el panel que
 > el pool no está vacío antes de confiar en la cadena.
 
+## Panel (identidad "Espectro")
+
+El panel es una app de **3 zonas** con identidad propia (tokens de la mascota:
+neón violeta/cian/oro sobre negro), y **todos los números salen de datos
+medidos**: si algo no se ha medido, se muestra "—" en vez de inventarlo.
+
+| Zona | Contenido |
+|---|---|
+| **Rail izquierdo** | Estado de análisis (válidos, caídos, reintentos aplicados, cola, último ciclo), Hilos & motor (hilos activos, modo de chequeo, tipo de validación), Velocidad & salida (CPM real, tasa de éxito, latencia p50/p90, sesiones), Vivos por protocolo (barras), Geolocalización top y Anonimato del último barrido. Cada tarjeta es **plegable** |
+| **Centro** | KPIs, barra de acciones, carga de proxies, checker masivo, Auto-Fuentes, tabla del pool, log, **Guías** y **Configuración** |
+| **Ficha lateral** | Al hacer clic en una fila: host:puerto, protocolo declarado vs. real, ping, país, **si tuneliza CONNECT** (sí / no / sin medir), fallos seguidos, enfriamiento, último check y la **línea exacta para OpenBullet** con un clic |
+
+- **Dos modos de densidad** (conmutador *Resumen / Detalle* en la cabecera):
+  `resumen` = lo esencial, `detalle` = todas las métricas y bloques extra.
+- **Pestañas**: `Panel · Checker · Pool · Auto-Fuentes · Guías · Configuración · Log`.
+- **Sistema de ayuda `?`**: cada control lleva un chip `?` con una tarjeta que
+  explica **QUÉ HACE** y **SE CONECTA CON** (con ratón o con Tab).
+- **Guías & recetas**: las 4 formas de enganchar el gateway (OB M2 / SilverBullet,
+  fuente remota, uTLS-TLS NEW, cURL/Python) con el **puerto y la sesión reales**
+  ya escritos, y botón de copiar.
+- **Configuración** (pestaña propia): modo del chequeo, validación GET/CONNECT,
+  reintentos, intervalo, estrategia, URL de validación, clave de éxito, Auto-Fuentes
+  e intervalo. Se aplican **en caliente** y se guardan en `settings.json` (junto al
+  programa, gitignored). **Los flags de la línea de comandos mandan** sobre el
+  fichero: si arrancaste con `--check-mode full`, el panel no lo pisa.
+
 ## Auto-Fuentes (`--harvest`): recolección continua sin intervención
 
 El gateway deja de depender de que tú pegues listas: recolecta solo, cada
@@ -350,7 +376,8 @@ filtro "brasil" -> 1 vivo · "united states" -> 14 · "GB" -> 1 · "reino unido"
 
 ## API
 
-- **Lectura (GET)**: `/get?session=X`, `/stats`, `/proxies`, `/logs`, `/proxy.txt`, `/panel`
+- **Lectura (GET)**: `/get?session=X`, `/stats`, `/proxies`, `/logs`, `/proxy.txt`, `/panel`, `/settings`
+  - `/settings` devuelve los ajustes vigentes del panel (modo del chequeo, validación, reintentos, intervalo, estrategia, URL/clave de validación, Auto-Fuentes, densidad). `POST /settings` (cabecera `X-GW-Panel`) los **aplica en caliente** y los guarda en `settings.json`.
   - `/proxies?limit=&offset=&sort=ping` (JSON con `checked`, `ping_ms`, `last_check`).
   - `/proxy.txt` exporta la lista de proxies con soporte de filtros:
     - `?alive=1`: Solo proxies **vivos y validados** (`Alive && Checked`). Tras un

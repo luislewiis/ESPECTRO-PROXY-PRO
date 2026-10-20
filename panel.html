@@ -7,21 +7,23 @@
 <title>ESPECTRO PROXY PRO - Panel</title>
 <style>
   :root{
-    --bg:#0a0d14;--bg2:#0e1220;--card:#131826;--card2:#171d2e;
-    --border:#232a3d;--border2:#2d3652;
-    --txt:#e8edf7;--muted:#8b94ad;--faint:#5c6580;
-    --green:#2bd97c;--red:#ff5d6c;--blue:#54a3ff;--amber:#ffb02e;
-    --violet:#a371f7;--cyan:#39d0d8;
-    --grad:linear-gradient(135deg,#54a3ff,#a371f7);
-    --shadow:0 8px 28px rgba(0,0,0,.35);
+    /* Identidad "Espectro" (mascota): neón violeta / cian / oro sobre negro */
+    --bg:#07060D;--bg2:#0B0914;--card:#100C1C;--card2:#15102A;
+    --border:#241A3C;--border2:#2A1F45;
+    --txt:#EDE9FE;--muted:#9C93B8;--faint:#6E668C;
+    --green:#34D399;--red:#FB7185;--blue:#22D3EE;--amber:#F5C542;
+    --violet:#A855F7;--cyan:#22D3EE;--magenta:#E879F9;--gold:#F5C542;
+    --grad:linear-gradient(135deg,#A855F7,#E879F9);
+    --gradgold:linear-gradient(140deg,#F5C542,#FFE9A8 45%,#F5C542);
+    --shadow:0 8px 28px rgba(0,0,0,.45);
     --r:14px;
   }
   *{box-sizing:border-box}
-  html{scrollbar-color:#2d3652 #0a0d14}
+  html{scrollbar-color:#2A1F45 #07060D}
   body{
     margin:0;background:
-      radial-gradient(1000px 500px at 85% -10%,rgba(163,113,247,.10),transparent 60%),
-      radial-gradient(900px 450px at -10% 10%,rgba(84,163,255,.08),transparent 55%),
+      radial-gradient(1100px 560px at 10% -12%,rgba(168,85,247,.17),transparent 60%),
+      radial-gradient(900px 480px at 92% 0%,rgba(34,211,238,.10),transparent 60%),
       var(--bg);
     color:var(--txt);
     font:14px/1.55 "Segoe UI",system-ui,-apple-system,sans-serif;
@@ -62,6 +64,140 @@
   .chip-updated{font-weight:400;color:var(--faint)}
 
   main{max-width:1180px;margin:0 auto;padding:24px 22px 60px}
+
+  /* ---------- esqueleto de 3 zonas (rail | centro | ficha) ---------- */
+  main.shell{
+    max-width:1720px;display:grid;gap:16px;align-items:start;
+    grid-template-columns:262px minmax(0,1fr) 332px;padding:16px 18px 60px
+  }
+  .center{min-width:0}
+  .rail{
+    position:sticky;top:74px;max-height:calc(100vh - 90px);overflow:auto;
+    display:flex;flex-direction:column;gap:12px;padding-right:2px
+  }
+  .rail::-webkit-scrollbar{width:7px}
+  .rail::-webkit-scrollbar-thumb{background:#2A1F45;border-radius:6px}
+  .rcard{
+    background:linear-gradient(180deg,var(--card),var(--bg2));
+    border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow)
+  }
+  .rcard>h3{
+    margin:0;padding:9px 12px;font-size:10.5px;letter-spacing:1.3px;text-transform:uppercase;
+    color:var(--faint);border-bottom:1px solid var(--border);
+    display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none
+  }
+  .rcard>h3 .chev{margin-left:auto;color:var(--faint);transition:transform .2s}
+  .rcard.closed>h3 .chev{transform:rotate(-90deg)}
+  .rcard.closed .rbody{display:none}
+  .rbody{padding:6px 4px 9px}
+  .rrow{
+    display:flex;align-items:center;gap:8px;padding:4px 10px;font-size:12.5px
+  }
+  .rrow .k{color:var(--muted)}
+  .rrow .v{margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .v.ok{color:var(--green)} .v.bad{color:var(--red)} .v.warn{color:var(--gold)}
+  .v.cy{color:var(--cyan)} .v.vi{color:var(--violet)} .v.mg{color:var(--magenta)}
+  .rbars{padding:6px 12px 11px;display:flex;flex-direction:column;gap:9px}
+  .rbar .lbl{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-bottom:3px}
+  .rtrack{height:5px;border-radius:4px;background:#1B1430;overflow:hidden}
+  .rfill{height:100%;border-radius:4px}
+  .rlist{padding:4px 8px 9px;display:flex;flex-wrap:wrap;gap:6px}
+  .rchip{
+    font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--border2);
+    color:var(--muted);background:var(--card2)
+  }
+  .rchip b{color:var(--txt)}
+
+  /* ficha lateral del proxy */
+  .ficha{
+    position:sticky;top:74px;max-height:calc(100vh - 90px);overflow:auto;
+    background:linear-gradient(180deg,var(--card),var(--bg2));
+    border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow)
+  }
+  .ficha>h3{
+    margin:0;padding:9px 12px;font-size:10.5px;letter-spacing:1.3px;text-transform:uppercase;
+    color:var(--faint);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:7px
+  }
+  .fbody{padding:10px 12px 14px}
+  .fhost{
+    font:600 17px/1.3 "Cascadia Mono",Consolas,monospace;color:#fff;
+    background:var(--bg2);border:1px solid var(--border2);border-radius:10px;
+    padding:9px 11px;margin-bottom:9px;word-break:break-all
+  }
+  .fpill{
+    display:inline-block;font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;
+    padding:2px 8px;border-radius:99px;border:1px solid var(--border2);color:var(--muted);
+    background:var(--card2);margin:0 5px 5px 0
+  }
+  .fpill.s5{color:var(--violet);border-color:rgba(168,85,247,.45);background:rgba(168,85,247,.12)}
+  .fpill.s4{color:var(--gold);border-color:rgba(245,197,66,.45);background:rgba(245,197,66,.12)}
+  .fpill.http{color:var(--cyan);border-color:rgba(34,211,238,.45);background:rgba(34,211,238,.12)}
+  .fpill.ok{color:var(--green);border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.12)}
+  .fpill.bad{color:var(--red);border-color:rgba(251,113,133,.45);background:rgba(251,113,133,.12)}
+  .frow{
+    display:flex;gap:10px;padding:5px 0;font-size:12.5px;border-bottom:1px dashed rgba(42,31,69,.7)
+  }
+  .frow:last-child{border-bottom:0}
+  .frow .k{color:var(--muted);flex:0 0 46%}
+  .frow .v{margin-left:auto;text-align:right;font-weight:600;word-break:break-all}
+  .fob{margin-top:11px;padding:10px;border-radius:10px;background:rgba(34,211,238,.06);
+    border:1px solid rgba(34,211,238,.22)}
+  .fob .t{font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--cyan);margin-bottom:6px}
+  .fob code{
+    display:block;font:12px/1.5 "Cascadia Mono",Consolas,monospace;color:#C9F5FF;
+    background:rgba(34,211,238,.09);border:1px solid rgba(34,211,238,.22);
+    border-radius:7px;padding:7px 9px;word-break:break-all;margin-bottom:8px
+  }
+  .fempty{color:var(--faint);font-size:12.5px;padding:14px 4px;text-align:center}
+
+  /* barra de pestanas */
+  .tabs{display:flex;gap:4px;flex-wrap:wrap;margin-left:6px}
+  .tab{
+    padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:600;color:var(--muted);
+    border:1px solid transparent;cursor:pointer;background:transparent
+  }
+  .tab:hover{color:var(--txt);border-color:var(--border2)}
+  .tab.on{
+    color:#fff;border-color:rgba(168,85,247,.5);
+    background:linear-gradient(180deg,rgba(168,85,247,.32),rgba(168,85,247,.12))
+  }
+  .modeswitch{
+    display:inline-flex;border:1px solid var(--border2);border-radius:9px;overflow:hidden
+  }
+  .modeswitch button{
+    border:0;border-radius:0;padding:6px 12px;font-size:12px;background:transparent;color:var(--muted)
+  }
+  .modeswitch button.on{background:linear-gradient(180deg,rgba(168,85,247,.35),rgba(168,85,247,.15));color:#fff}
+  .emblem{
+    width:34px;height:34px;border-radius:10px;display:grid;place-items:center;
+    background:var(--gradgold);color:#241a00;font-weight:800;font-size:18px;
+    box-shadow:0 0 18px rgba(245,197,66,.32)
+  }
+
+  /* modo resumen / detalle */
+  body[data-mode="resumen"] .solo-detalle{display:none !important}
+  body[data-mode="detalle"] .solo-resumen{display:none !important}
+
+  /* secciones con pestana */
+  .sec{display:block}
+  body[data-tab]:not([data-tab="all"]) .sec{display:none}
+
+  /* responsive: el centro manda. Con poca pantalla la ficha baja debajo
+     (nunca se pisa) y el rail se estrecha; en movil se apila todo. */
+  @media (max-width:1400px){
+    main.shell{grid-template-columns:236px minmax(0,1fr) 300px;gap:14px}
+  }
+  @media (max-width:1180px){
+    main.shell{grid-template-columns:228px minmax(0,1fr)}
+    .ficha{grid-column:1/-1;position:static;max-height:none}
+    .fbody{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0 18px;align-items:start}
+    .fbody .fhost,.fbody .fob{grid-column:1/-1}
+  }
+  @media (max-width:820px){
+    main.shell{grid-template-columns:minmax(0,1fr)}
+    .rail{position:static;max-height:none;flex-direction:row;flex-wrap:wrap}
+    .rail .rcard{flex:1 1 240px}
+  }
 
   /* ---------- empty state ---------- */
   #empty{
@@ -149,7 +285,7 @@
     padding:11px 13px;border-radius:10px;background:#1a1230;
     border:1px solid rgba(163,113,247,.5);box-shadow:0 14px 40px rgba(0,0,0,.75);
     font-size:12px;line-height:1.5;color:#d9d2f2;display:none;text-align:left;
-    font-weight:400;white-space:normal
+    font-weight:400;white-space:normal;pointer-events:none
   }
   .tipwrap:hover .tipcard,.tipwrap:focus-within .tipcard{display:block}
   .tipcard b{color:#fff}
@@ -347,30 +483,105 @@ td.ping{color:var(--faint);white-space:nowrap}
 
 <header>
   <div class="logo">
-    <div class="mark">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"
-        stroke-linecap="round" stroke-linejoin="round">
-        <path d="M13 2L4.09 12.97a1 1 0 0 0 .78 1.63H11l-1 7.4 8.91-10.97a1 1 0 0 0-.78-1.63H13l1-7.4z"/>
-      </svg>
-    </div>
+    <div class="emblem" title="Espectro — Comunidad">G</div>
     <h1>ESPECTRO <span>PROXY PRO</span></h1>
   </div>
   <span class="pill" id="statusPill"><span class="dot"></span><span id="statusTxt">conectando…</span></span>
   <span class="pill chip-strat" id="stratPill">estrategia: —</span>
+  <span class="pill" id="poolPill" data-help="Candidatos cargados en el pool (proxies.txt + Auto-Fuentes)." data-help2="Tus listas locales y el recolector Auto-Fuentes.">pool: —</span>
+  <span class="pill" id="alivePill" data-help="Proxies VIVOS y validados: los que el gateway puede usar ya mismo." data-help2="El health-check y el pool de proxies.">vivos: —</span>
+  <nav class="tabs" id="tabs">
+    <div class="tab on" data-tab="all" onclick="setTab(this)">Panel</div>
+    <div class="tab" data-tab="checker" onclick="setTab(this)">Checker</div>
+    <div class="tab" data-tab="pool" onclick="setTab(this)">Pool</div>
+    <div class="tab" data-tab="fuentes" onclick="setTab(this)">Auto-Fuentes</div>
+    <div class="tab" data-tab="guias" onclick="setTab(this)">Guías</div>
+    <div class="tab" data-tab="config" onclick="setTab(this)">Configuración</div>
+    <div class="tab" data-tab="log" onclick="setTab(this)">Log</div>
+  </nav>
   <div class="right">
+    <div class="modeswitch" id="modeSwitch" data-help="Resumen: lo esencial, sin apretar la pantalla. Detalle: todas las métricas, la ficha completa y los bloques extra (revisar el diseño en la pestaña Guías)." data-help2="Solo preferencias de la interfaz: no cambia el comportamiento del gateway.">
+      <button class="on" data-mode="resumen" onclick="setMode('resumen')">Resumen</button>
+      <button data-mode="detalle" onclick="setMode('detalle')">Detalle</button>
+    </div>
     <span class="pill chip-updated" id="updated">—</span>
     <a href="/" class="pill">API</a>
   </div>
 </header>
 
-<main>
+<main class="shell">
+  <!-- ============ RAIL IZQUIERDO: métricas reales ============ -->
+  <aside class="rail">
+    <div class="rcard">
+      <h3 onclick="fold(this)">Estado de análisis <span class="chev">▾</span></h3>
+      <div class="rbody">
+        <div class="rrow"><span class="k">✓ Proxies válidos</span><span class="v ok" id="rValid">—</span></div>
+        <div class="rrow"><span class="k">✕ Inválidos / caídos</span><span class="v bad" id="rDead">—</span></div>
+        <div class="rrow"><span class="k">↻ Reintentos aplicados</span><span class="v warn" id="rRetries">—</span></div>
+        <div class="rrow"><span class="k">◍ Pendientes / cola</span><span class="v" id="rQueue">—</span></div>
+        <div class="rrow"><span class="k">⏱ Último ciclo</span><span class="v cy" id="rLast">—</span></div>
+      </div>
+    </div>
+
+    <div class="rcard">
+      <h3 onclick="fold(this)">Hilos &amp; motor <span class="chev">▾</span></h3>
+      <div class="rbody">
+        <div class="rrow"><span class="k">Estado</span><span class="v cy" id="rMotor">—</span></div>
+        <div class="rrow"><span class="k">Hilos activos</span><span class="v vi" id="rThreads">—</span></div>
+        <div class="rrow"><span class="k">Modo de chequeo</span><span class="v" id="rMode">—</span></div>
+        <div class="rrow"><span class="k">Validación</span><span class="v" id="rKind">—</span></div>
+        <div class="rrow solo-detalle"><span class="k">Reintentos por proxy</span><span class="v" id="rRetriesCfg">—</span></div>
+      </div>
+    </div>
+
+    <div class="rcard">
+      <h3 onclick="fold(this)">Velocidad &amp; salida <span class="chev">▾</span></h3>
+      <div class="rbody">
+        <div class="rrow"><span class="k">CPM</span><span class="v vi" id="rCpm">—</span></div>
+        <div class="rrow"><span class="k">Tasa de éxito</span><span class="v ok" id="rRate">—</span></div>
+        <div class="rrow"><span class="k">Latencia p50</span><span class="v cy" id="rP50">—</span></div>
+        <div class="rrow solo-detalle"><span class="k">Latencia p90</span><span class="v cy" id="rP90">—</span></div>
+        <div class="rrow solo-detalle"><span class="k">Sesiones sticky</span><span class="v mg" id="rSess">—</span></div>
+        <div class="rrow solo-detalle"><span class="k">Errores</span><span class="v bad" id="rErr">—</span></div>
+      </div>
+    </div>
+
+    <div class="rcard">
+      <h3 onclick="fold(this)">Vivos por protocolo <span class="chev">▾</span></h3>
+      <div class="rbars">
+        <div class="rbar"><div class="lbl"><span>SOCKS5</span><span id="bS5">0</span></div>
+          <div class="rtrack"><div class="rfill" id="fS5" style="width:0%;background:linear-gradient(90deg,#A855F7,#7C3AED)"></div></div></div>
+        <div class="rbar"><div class="lbl"><span>HTTP / CONNECT</span><span id="bHTTP">0</span></div>
+          <div class="rtrack"><div class="rfill" id="fHTTP" style="width:0%;background:linear-gradient(90deg,#22D3EE,#0EA5E9)"></div></div></div>
+        <div class="rbar"><div class="lbl"><span>SOCKS4 / SOCKS4a</span><span id="bS4">0</span></div>
+          <div class="rtrack"><div class="rfill" id="fS4" style="width:0%;background:linear-gradient(90deg,#F5C542,#D9A406)"></div></div></div>
+      </div>
+    </div>
+
+    <div class="rcard solo-detalle">
+      <h3 onclick="fold(this)">Geolocalización top <span class="chev">▾</span></h3>
+      <div class="rlist" id="rGeo"><span class="rchip">sin datos GeoIP</span></div>
+    </div>
+
+    <div class="rcard solo-detalle">
+      <h3 onclick="fold(this)">Anonimato (último barrido) <span class="chev">▾</span></h3>
+      <div class="rbody">
+        <div class="rrow"><span class="k">★ Élite</span><span class="v ok" id="rElite">—</span></div>
+        <div class="rrow"><span class="k">◐ Alto</span><span class="v vi" id="rHigh">—</span></div>
+        <div class="rrow"><span class="k">◔ Transparente</span><span class="v bad" id="rTransp">—</span></div>
+        <div class="rrow solo-detalle"><span class="k">Fuente</span><span class="v" id="rAnonSrc">checker masivo</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="center">
   <!-- empty state -->
   <div id="empty">
-    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#54a3ff" stroke-width="1.6"
+    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#22D3EE" stroke-width="1.6"
       stroke-linecap="round" stroke-linejoin="round">
       <rect x="2" y="3" width="20" height="7" rx="2"/>
       <rect x="2" y="14" width="20" height="7" rx="2"/>
-      <circle cx="6" cy="6.5" r=".8" fill="#54a3ff"/><circle cx="6" cy="17.5" r=".8" fill="#54a3ff"/>
+      <circle cx="6" cy="6.5" r=".8" fill="#22D3EE"/><circle cx="6" cy="17.5" r=".8" fill="#22D3EE"/>
     </svg>
     <h3>Sin proxies cargados</h3>
     <p>El gateway está corriendo pero tu lista <span class="mono">proxies.txt</span> está vacía
@@ -489,7 +700,7 @@ td.ping{color:var(--faint);white-space:nowrap}
   </div>
 
   <!-- cargar proxies -->
-  <section>
+  <section class="sec" data-tab="pool">
     <div class="sec-head"><h2>Cargar proxies</h2><div class="line"></div></div>
     <div class="importcard">
       <div class="itabs">
@@ -542,7 +753,7 @@ td.ping{color:var(--faint);white-space:nowrap}
   </section>
 
   <!-- checker masivo -->
-  <section id="massSection">
+  <section class="sec" id="massSection" data-tab="checker">
     <div class="sec-head">
       <h2>Checker Masivo</h2><div class="line"></div>
       <div class="dl">
@@ -719,7 +930,7 @@ td.ping{color:var(--faint);white-space:nowrap}
   </section>
 
   <!-- auto-fuentes (harvest.go): recoleccion continua + descubrimiento -->
-  <section id="harvestSection">
+  <section class="sec" id="harvestSection" data-tab="fuentes">
     <div class="sec-head">
       <h2>Auto-Fuentes</h2><div class="line"></div>
       <div class="dl"><a href="/harvest/export">↓ recolectado</a></div>
@@ -762,7 +973,7 @@ td.ping{color:var(--faint);white-space:nowrap}
   </section>
 
   <!-- proxies -->
-  <section>
+  <section class="sec" data-tab="pool">
     <div class="sec-head">
       <h2>Proxies</h2><div class="line"></div>
       <div class="dl">
@@ -795,7 +1006,7 @@ td.ping{color:var(--faint);white-space:nowrap}
   </section>
 
   <!-- info de arranque: antes salia en la consola, ahora vive en el panel -->
-  <section>
+  <section class="sec" data-tab="log">
     <div class="sec-head"><h2>Info de arranque</h2><div class="line"></div></div>
     <div class="term">
       <div class="bar"><i></i><i></i><i></i><span class="t">ESPECTRO PROXY PRO — boot</span></div>
@@ -804,13 +1015,162 @@ td.ping{color:var(--faint);white-space:nowrap}
   </section>
 
   <!-- log -->
-  <section>
+  <section class="sec" data-tab="log">
     <div class="sec-head"><h2>Log</h2><div class="line"></div></div>
     <div class="term">
       <div class="bar"><i></i><i></i><i></i><span class="t">proxy-gateway — tiempo real</span></div>
       <div id="logs">conectando…</div>
     </div>
   </section>
+
+  <!-- ============ GUIAS: hub de conexiones ============ -->
+  <section class="sec" data-tab="guias">
+    <div class="sec-head"><h2>Guías &amp; recetas</h2><div class="line"></div></div>
+    <div class="importcard" style="padding:14px 16px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px">
+
+        <div class="rcard" style="box-shadow:none">
+          <h3>OpenBullet M2 &amp; SilverBullet</h3>
+          <div class="rbody">
+            <div class="rrow"><span class="k">Proxy Manager → Add proxy</span><span class="v" id="gwPort">—</span></div>
+            <div class="rrow"><span class="k">Tipo en OB</span><span class="v">HTTP</span></div>
+            <div class="rrow"><span class="k">Comprueba</span><span class="v">1 proxy (no 12.000)</span></div>
+            <div class="fob" style="margin-top:10px">
+              <div class="t">Línea para pegar</div>
+              <code id="rcOb">—</code>
+              <button class="primary" onclick="copyOBLine()">📋 Copiar línea OB</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="rcard" style="box-shadow:none">
+          <h3>Fuente remota (lista filtrada)</h3>
+          <div class="rbody">
+            <div class="rrow"><span class="k">Para</span><span class="v">OB / SilverBullet</span></div>
+            <div class="rrow"><span class="k">Trae</span><span class="v">solo vivos, por ping</span></div>
+            <div class="rrow"><span class="k">Tope</span><span class="v" id="rcMax">300</span></div>
+            <div class="fob" style="margin-top:10px">
+              <div class="t">URL de la fuente</div>
+              <code id="rcSource">—</code>
+              <button class="primary" onclick="copyText('rcSource')">📋 Copiar URL</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="rcard" style="box-shadow:none">
+          <h3>uTLS · TLS NEW v9</h3>
+          <div class="rbody">
+            <div class="rrow"><span class="k">Ojo</span><span class="v warn">no es un proxy</span></div>
+            <div class="rrow"><span class="k">Habla</span><span class="v">x-tls-url</span></div>
+            <div class="rrow"><span class="k">Se encadena por</span><span class="v">entorno</span></div>
+            <div class="fob" style="margin-top:10px">
+              <div class="t">Variable de entorno</div>
+              <code id="rcEnv">—</code>
+              <button class="primary" onclick="copyText('rcEnv')">📋 Copiar variable</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="rcard" style="box-shadow:none">
+          <h3>cURL · Python · Postman</h3>
+          <div class="rbody">
+            <div class="rrow"><span class="k">TLS</span><span class="v ok">extremo a extremo</span></div>
+            <div class="rrow"><span class="k">El gateway</span><span class="v">no descifra nada</span></div>
+            <div class="fob" style="margin-top:10px">
+              <div class="t">Prueba rápida</div>
+              <code id="rcCurl">—</code>
+              <button class="primary" onclick="copyText('rcCurl')">📋 Copiar comando</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CONFIGURACION ============ -->
+  <section class="sec" data-tab="config">
+    <div class="sec-head"><h2>Configuración</h2><div class="line"></div></div>
+    <div class="importcard" style="padding:14px 16px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
+
+        <div>
+          <label class="fld" style="display:block;margin-bottom:8px">Modo del chequeo</label>
+          <select id="cfgMode" style="width:100%" data-help="alive: el auto-chequeo solo revisa los vivos y los nunca verificados (barato, es el default). full: revisa TODA la lista en cada ciclo (más caro, pero ves el estado real de todo el pool)." data-help2="El judge externo y el archivo de estado proxies.txt.state.json.">
+            <option value="alive">solo vivos + sin verificar</option>
+            <option value="full">completo (toda la lista)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="fld" style="display:block;margin-bottom:8px">Validación</label>
+          <select id="cfgKind" style="width:100%" data-help="GET: un GET plano (más proxies pasan el filtro, pero algunos no tunelizan). CONNECT: valida el túnel real, que es lo que necesita OpenBullet/SilverBullet (menos vivos, pero todos sirven)." data-help2="El proxy remoto al que se le pide la validación.">
+            <option value="GET">GET (rápido)</option>
+            <option value="CONNECT">CONNECT (túnel, para OB)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="fld" style="display:block;margin-bottom:8px">Reintentos por proxy</label>
+          <input type="number" id="cfgRetries" min="0" max="10" style="width:100%" data-help="Cuántos reintentos antes de dar el proxy por muerto. Cada reintento prueba un PROTOCOLO distinto (socks5 → socks4 → http) y el último repite el declarado para absorber golpes de red." data-help2="El pool de proxies y el judge externo.">
+        </div>
+
+        <div>
+          <label class="fld" style="display:block;margin-bottom:8px">Intervalo del chequeo (s)</label>
+          <input type="number" id="cfgInterval" min="0" max="3600" style="width:100%" data-help="Segundos entre ciclos del health-check. 0 = desactivado (solo se chequea a mano). 60 = cada minuto, que es lo recomendado con miles de proxies." data-help2="El pool de proxies.">
+        </div>
+
+        <div>
+          <label class="fld" style="display:block;margin-bottom:8px">Estrategia de rotación</label>
+          <select id="cfgStrategy" style="width:100%" data-help="round-robin (uno tras otro), random, sticky (mismo proxy por sesión) o fastest (el 25% más rápido)." data-help2="El pool de proxies y las sesiones sticky.">
+            <option value="round-robin">round-robin</option>
+            <option value="random">random</option>
+            <option value="sticky">sticky</option>
+            <option value="fastest">fastest</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="fld" style="display:block;margin-bottom:8px">URL de validación</label>
+          <input type="text" id="cfgTestURL" style="width:100%" placeholder="http://api.ipify.org/" data-help="URL contra la que se comprueba cada proxy. Si pones una de contenido (por ejemplo https://www.google.com/) usa también la clave de éxito de abajo." data-help2="El sitio de validación remoto.">
+        </div>
+
+        <div>
+          <label class="fld" style="display:block;margin-bottom:8px">Clave de éxito</label>
+          <input type="text" id="cfgKey" style="width:100%" placeholder="title&gt;Google" data-help="Texto que debe aparecer en el cuerpo de la respuesta para dar el proxy por válido (validación de contenido real, estilo Proxy Checker). Vacío = solo basta con que responda." data-help2="El sitio de validación remoto.">
+        </div>
+
+        <div>
+          <label class="fld" style="display:block;margin-bottom:8px">Auto-Fuentes</label>
+          <select id="cfgHarvest" style="width:100%" data-help="Recolector automático de proxies públicos: los añade al pool y los valida. Escribe en su propio archivo, nunca toca proxies.txt." data-help2="Las fuentes públicas y el archivo propio del recolector.">
+            <option value="off">desactivado</option>
+            <option value="on">activado</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="fld" style="display:block;margin-bottom:8px">Intervalo Auto-Fuentes (min)</label>
+          <input type="number" id="cfgHarvestItv" min="1" max="1440" style="width:100%" data-help="Minutos entre pasadas del recolector. 15 = cada cuarto de hora." data-help2="Las fuentes públicas.">
+        </div>
+
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
+        <button class="primary" onclick="saveSettings()" data-help="Guarda los cambios y los aplica al gateway en caliente. Se escriben en settings.json (junto al programa)." data-help2="El archivo settings.json y el pool de proxies.">💾 Guardar ajustes</button>
+        <span class="muted" id="cfgSaved">Los cambios se aplican al instante y se recuerdan al reiniciar.</span>
+        <span style="flex:1"></span>
+        <span class="muted" id="cfgPath" style="font-size:11.5px"></span>
+      </div>
+    </div>
+  </section>
+  </div><!-- /.center -->
+
+  <!-- ============ FICHA DEL PROXY ============ -->
+  <aside class="ficha">
+    <h3>Ficha de proxy</h3>
+    <div class="fbody" id="fichaBody">
+      <div class="fempty">Haz clic en una fila de la tabla para ver su ficha:<br>ping, país, protocolo real, si tuneliza, fallos y la línea para OB.</div>
+    </div>
+  </aside>
 </main>
 
 <footer>
@@ -959,7 +1319,7 @@ function renderProxies(){
     return;
   }
   tb.innerHTML = rows.map(({p, i}) =>
-    `<tr>
+    `<tr style="cursor:pointer" onclick="showFicha(${i})">
       <td class="idx">${proxyOffset + i + 1}</td>
       <td><span class="scheme ${esc(p.scheme)}">${esc(p.scheme)}</span></td>
       <td class="mono">${esc(p.host)}:${p.port}</td>
@@ -1168,6 +1528,9 @@ async function refresh(){
     // de badges quedaria desincronizada hasta el siguiente refresco de 15s.
     if (lastAlive !== null && st.alive !== lastAlive) refreshProxies();
     lastAlive = st.alive;
+
+    updateRail(st);
+    updateGuias(st);
 
     const lines = (lg.lines || []);
     const txt = lines.join('\n') || '(vacío)';
@@ -2159,11 +2522,260 @@ async function harvestRemove(url){
     harvestRefresh();
   }catch(e){ toast('Fallo al quitar la fuente', true); }
 }
+// ================= INTERFAZ: pestañas, modo, ficha y ajustes =================
+function setTab(el){
+  document.querySelectorAll('#tabs .tab').forEach(t => t.classList.remove('on'));
+  el.classList.add('on');
+  document.body.dataset.tab = el.dataset.tab;
+  try{ localStorage.setItem('espectro.tab', el.dataset.tab); }catch(e){}
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function setMode(m){
+  document.body.dataset.mode = m;
+  try{ localStorage.setItem('espectro.mode', m); }catch(e){}
+  document.querySelectorAll('#modeSwitch button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+  saveSettings({mode:m}, true);
+}
+function fold(h){ h.parentElement.classList.toggle('closed'); }
+function copyText(id){
+  const el = document.getElementById(id);
+  if (!el) return;
+  const t = (el.textContent || '').trim();
+  navigator.clipboard.writeText(t).then(
+    () => toast('Copiado: ' + t.slice(0,70)),
+    () => toast('No se pudo copiar', true));
+}
+function el(id){ return document.getElementById(id); }
+function setTxt(id, v){ const e = el(id); if (e) e.textContent = v; }
+
+// obType: tipo nativo de OpenBullet (0=http, 1=socks4, 2=socks5).
+function obType(scheme){
+  if (scheme === 'socks5') return 2;
+  if (scheme === 'socks4' || scheme === 'socks4a') return 1;
+  return 0;
+}
+// fichaOBLine: linea OB de la FICHA (incluye usuario/clave del proxy).
+// (OJO: no confundir con obLine(sesion), que ya existia para el linkbox.)
+function fichaOBLine(p){
+  return obType(p.effective || p.scheme) + ':' + p.host + ':' + p.port + ':' + (p.user || '') + ':' + (p.password || '');
+}
+function ago(ts){
+  if (!ts) return '—';
+  const s = Math.max(0, Math.floor(Date.now()/1000) - ts);
+  if (s < 60) return 'hace ' + s + ' s';
+  if (s < 3600) return 'hace ' + Math.floor(s/60) + ' min';
+  return 'hace ' + Math.floor(s/3600) + ' h';
+}
+
+// showFicha: ficha lateral del proxy seleccionado (datos MEDIDOS).
+// Se construye con la API del DOM (textContent), nunca con innerHTML: los
+// valores vienen del servidor y no se interpolan como HTML.
+function showFicha(i){
+  const p = proxyData[i];
+  if (!p) return;
+  const sch = p.effective || p.scheme;
+  const tipo = sch === 'socks5' ? 's5' : (sch === 'socks4' || sch === 'socks4a') ? 's4' : 'http';
+  const linea = fichaOBLine(p);
+  const body = el('fichaBody');
+  body.innerHTML = '';
+
+  const host = document.createElement('div');
+  host.className = 'fhost';
+  host.textContent = p.host + ':' + p.port;
+  body.appendChild(host);
+
+  const pills = document.createElement('div');
+  const mkPill = (txt, cls) => {
+    const s = document.createElement('span');
+    s.className = 'fpill' + (cls ? ' ' + cls : '');
+    s.textContent = txt;
+    pills.appendChild(s);
+  };
+  mkPill(sch, tipo);
+  mkPill(p.alive ? 'vivo' : 'muerto', p.alive ? 'ok' : 'bad');
+  if (p.country) mkPill(p.country);
+  if (p.cooldown_s > 0) mkPill('enfriado ' + p.cooldown_s + 's');
+  body.appendChild(pills);
+
+  const box = document.createElement('div');
+  box.style.marginTop = '8px';
+  const row = (k, v) => {
+    const r = document.createElement('div');
+    r.className = 'frow';
+    const kk = document.createElement('span');
+    kk.className = 'k';
+    kk.textContent = k;
+    const vv = document.createElement('span');
+    vv.className = 'v';
+    vv.textContent = v;
+    r.appendChild(kk); r.appendChild(vv);
+    box.appendChild(r);
+  };
+  const decl = (p.alt && p.alt !== p.scheme) ? p.scheme + ' (declarado) -> ' + p.alt + ' (real)' : p.scheme;
+  row('Protocolo', decl);
+  row('Ping', p.ping_ms > 0 ? p.ping_ms + ' ms' : '-');
+  row('Pais', p.country ? p.country : 'sin GeoIP');
+  row('Tunel CONNECT', p.conn_known ? (p.conn_ok ? 'si' : 'no') : 'sin medir');
+  row('Fallos seguidos', String(p.fails));
+  row('Enfriamiento', p.cooldown_s > 0 ? p.cooldown_s + ' s' : 'ninguno');
+  row('Ultimo check', p.last_check ? ago(p.last_check) : 'nunca');
+  body.appendChild(box);
+
+  const fob = document.createElement('div');
+  fob.className = 'fob';
+  const t = document.createElement('div');
+  t.className = 't';
+  t.textContent = 'Linea exacta para OpenBullet / OBM';
+  const code = document.createElement('code');
+  code.textContent = linea;
+  const btn = document.createElement('button');
+  btn.className = 'primary';
+  btn.textContent = 'Copiar formato OB';
+  btn.addEventListener('click', copyFichaLine);
+  fob.appendChild(t); fob.appendChild(code); fob.appendChild(btn);
+  body.appendChild(fob);
+
+  window._fichaLine = linea;
+}
+function copyFichaLine(){
+  const t = window._fichaLine || '';
+  if (!t) return;
+  navigator.clipboard.writeText(t).then(
+    () => toast('Línea OB copiada: ' + t),
+    () => toast('No se pudo copiar', true));
+}
+
+// ================= AJUSTES (pestana Configuracion) =================
+async function loadSettings(){
+  try{
+    const s = await jget('/settings');
+    if (!s) return;
+    el('cfgMode').value = s.check_mode || 'alive';
+    el('cfgKind').value = s.check_kind || 'GET';
+    el('cfgRetries').value = s.check_retries != null ? s.check_retries : 3;
+    el('cfgInterval').value = s.check_interval != null ? s.check_interval : 60;
+    el('cfgStrategy').value = s.strategy || 'round-robin';
+    el('cfgTestURL').value = s.test_url || '';
+    el('cfgKey').value = s.success_key || '';
+    el('cfgHarvest').value = s.harvest ? 'on' : 'off';
+    el('cfgHarvestItv').value = s.harvest_interval != null ? s.harvest_interval : 15;
+    if (s.mode) setMode(s.mode);
+  }catch(e){ /* sin token o sin permiso: se deja como está */ }
+}
+async function saveSettings(partial, quiet){
+  const body = partial || {
+    check_mode: el('cfgMode').value,
+    check_kind: el('cfgKind').value,
+    check_connect: el('cfgKind').value === 'CONNECT',
+    check_retries: parseInt(el('cfgRetries').value || '3', 10),
+    check_interval: parseInt(el('cfgInterval').value || '60', 10),
+    strategy: el('cfgStrategy').value,
+    test_url: el('cfgTestURL').value.trim(),
+    success_key: el('cfgKey').value.trim(),
+    harvest: el('cfgHarvest').value === 'on',
+    harvest_interval: parseInt(el('cfgHarvestItv').value || '15', 10)
+  };
+  try{
+    const r = await jpost('/settings', body);
+    if (!quiet) toast('Ajustes guardados y aplicados');
+    if (r && r.settings){
+      el('cfgSaved').textContent = 'Guardado ' + new Date().toLocaleTimeString();
+    }
+    refresh();
+  }catch(e){
+    if (!quiet) toast('No se pudo guardar: ' + e.message, true);
+  }
+}
+
+// ================= RAIL: metricas reales (nunca inventadas) =================
+let cpmLast = {t: Date.now(), r: 0};
+function updateRail(st){
+  setTxt('rValid', st.alive);
+  setTxt('rDead', st.dead);
+  setTxt('rRetries', st.retries_used != null ? st.retries_used : '—');
+  setTxt('rQueue', st.unchecked);
+  setTxt('rLast', st.last_check_ts ? ago(st.last_check_ts) : 'nunca');
+
+  const act = st.threads_active || 0;
+  setTxt('rMotor', act > 0 ? 'EN VIVO (ONLINE)' : 'en espera');
+  setTxt('rThreads', act + ' / ' + (st.threads_total || 64));
+  setTxt('rMode', st.check_mode === 'full' ? 'COMPLETO' : 'solo vivos');
+  setTxt('rKind', st.check_kind || 'GET');
+  setTxt('rRetriesCfg', st.check_retries != null ? st.check_retries : '—');
+
+  // CPM real: diferencia de peticiones entre dos refrescos.
+  const now = Date.now();
+  const dr = (st.requests || 0) - cpmLast.r;
+  const dt = (now - cpmLast.t) / 1000;
+  if (dt > 2) {
+    const cpm = dt > 0 ? Math.max(0, dr / dt * 60) : 0;
+    setTxt('rCpm', Math.round(cpm) + ' cpm');
+    cpmLast = {t: now, r: st.requests || 0};
+  }
+  setTxt('rRate', (st.success_rate != null ? st.success_rate.toFixed(1) : '100') + ' %');
+  setTxt('rP50', st.lat_p50 ? st.lat_p50 + ' ms' : '—');
+  setTxt('rP90', st.lat_p90 ? st.lat_p90 + ' ms' : '—');
+  setTxt('rSess', st.sessions);
+  setTxt('rErr', st.errors);
+
+  const s5 = st.alive_socks5 || 0, ht = st.alive_http || 0, s4 = st.alive_socks4 || 0;
+  const mx = Math.max(1, s5, ht, s4);
+  setTxt('bS5', s5); setTxt('bHTTP', ht); setTxt('bS4', s4);
+  const f = (id, v) => { const e = el(id); if (e) e.style.width = Math.round(v / mx * 100) + '%'; };
+  f('fS5', s5); f('fHTTP', ht); f('fS4', s4);
+
+  // geolocalizacion top (lo que mide el GeoIP offline)
+  const geo = st.geo_top || [];
+  const g = el('rGeo');
+  if (g){
+    g.innerHTML = geo.length
+      ? geo.map(c => '<span class="rchip">' + esc(c.country) + ' <b>' + c.count + '</b></span>').join('')
+      : '<span class="rchip">sin datos GeoIP</span>';
+  }
+  // pool y vivos en la cabecera
+  setTxt('poolPill', 'pool: ' + st.total);
+  setTxt('alivePill', 'vivos: ' + st.alive);
+}
+
+// updateGuias: las recetas SIEMPRE con los puertos y la sesion reales.
+function updateGuias(st){
+  const gw = st.gateway || '127.0.0.1:8082';
+  const hostPort = gw.replace(/^https?:\/\//, '');
+  const port = hostPort.replace(/^.*:/, '');
+  const sess = (el('sess') && el('sess').value) || 'MI_SESION';
+  const tok = gwToken();
+  const tokq = tok ? '&token=' + encodeURIComponent(tok) : '';
+  setTxt('gwPort', hostPort);
+  const ob = port + ':' + sess + ':clave';
+  const e = el('rcOb'); if (e) e.textContent = ob;
+  const src = location.origin + '/proxy.txt?alive=1&sort=ping&max=300' + tokq;
+  const e2 = el('rcSource'); if (e2) e2.textContent = src;
+  const env = "$env:HTTPS_PROXY='http://" + sess + ":clave@" + hostPort + "'";
+  const e3 = el('rcEnv'); if (e3) e3.textContent = env;
+  const curl = 'curl -x http://' + hostPort + ' https://api.ipify.org';
+  const e4 = el('rcCurl'); if (e4) e4.textContent = curl;
+}
+
 setInterval(refresh, 4000);
 setInterval(refreshProxies, 15000);
 setInterval(harvestRefresh, 7000);
 harvestRefresh();
 initHelp();
+// Restaura la pestana y la densidad guardadas en este navegador.
+(function(){
+  let m = null; try{ m = localStorage.getItem('espectro.mode'); }catch(e){}
+  if (m) setMode(m);
+  let t = null; try{ t = localStorage.getItem('espectro.tab'); }catch(e){}
+  if (t){
+    const tab = document.querySelector('#tabs .tab[data-tab="' + t + '"]');
+    if (tab) setTab(tab);
+  }
+  loadSettings();
+  const s = document.getElementById('sess');
+  if (s) s.addEventListener('input', () => {
+    if (window.lastStats) updateGuias(window.lastStats);
+  });
+})();
 </script>
 </body>
 </html>

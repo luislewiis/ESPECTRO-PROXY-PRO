@@ -23,6 +23,9 @@ type stateEntry struct {
 	// Alt: protocolo real detectado (el declarado no funcionaba). Se
 	// persiste para que el trafico siga usando el bueno tras reiniciar.
 	Alt string `json:"alt,omitempty"`
+	// ConnOK/ConnKnown: si el proxy sabe tunelizar (CONNECT).
+	ConnOK    bool `json:"conn_ok,omitempty"`
+	ConnKnown bool `json:"conn_known,omitempty"`
 }
 
 // statePathFor devuelve la ruta del archivo de estado ("" = desactivado).
@@ -107,7 +110,7 @@ func (a *App) saveState() {
 			kv = append(kv, stateKV{key: p.Key(), st: stateEntry{
 				Alive: p.Alive, Fails: p.Fails, Checked: p.Checked,
 				PingMs: p.PingMs, LastCheck: p.LastCheck, Country: p.Country,
-				Alt: p.AltScheme,
+				Alt: p.AltScheme, ConnOK: p.ConnOK, ConnKnown: p.ConnKnown,
 			}})
 		}
 		encogio := end < start+stateSaveChunk // el pool se sustituyo a mitad

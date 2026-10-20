@@ -267,6 +267,7 @@ func main() {
 	checkMode := flag.String("check-mode", "alive", "modo del auto-check: alive (solo vivos + sin verificar, default) | full (chequeo COMPLETO de la lista en cada ciclo)")
 	noCooldown := flag.Bool("no-cooldown", false, "desactiva el enfriamiento de proxies fallados en la rotacion (A/B y diagnostico)")
 	noState := flag.Bool("no-state", false, "no persistir el estado de analisis (no crea <lista>.state.json)")
+	noSettings := flag.Bool("no-settings", false, "ignorar settings.json (no carga ni guarda los ajustes del panel)")
 	stateFileFlag := flag.String("state-file", "", "ruta del archivo de estado persistente (default: <lista>.state.json)")
 	showVersion := flag.Bool("version", false, "imprime la version y la licencia y sale")
 	tuneTCPFlag := flag.Bool("tune-tcp", false, "afina el stack TCP de Windows para alta concurrencia (OpenBullet/SilverBullet) y sale")
@@ -387,13 +388,27 @@ func main() {
 		app.idle = time.Duration(*idleTimeout) * time.Second
 	}
 	logConsola = app.logf
+	// Ajustes persistentes (settings.json): se aplican DESPUES de los flags
+	// pero SIN pisar los que el usuario escribio en la linea de comandos
+	// (flag.Visit sabe cuales se impatience de forma explicita).
+	app.explicitFlags = map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { app.explicitFlags[f.Name] = true })
+	app.geoPath = geoPath
+	app.harvestOutPath = *harvestOut
+	app.harvestMax = *harvestMaxLines
+	app.harvestItv = *harvestItv
+	app.harvestOn = *harvest
+	app.settingsOff = *noSettings
+	if !*noSettings {
+		app.applySettingsFile()
+	}
 	// Auto-Fuentes (harvest.go): se crea ANTES de cargar la lista para que su
 	// archivo (<harvest-out>) entre al pool desde el arranque. Solo escribe en
 	// ese archivo propio: proxies.txt y las listas del usuario quedan intactas.
-	if *harvest {
+	if app.harvestOn {
 		app.harvestCheck = !*harvestNoCheck
-		app.harv = newHarvester(app, *harvestOut, *harvestItv)
-		app.harv.maxLines = *harvestMaxLines
+		app.harv = newHarvester(app, app.harvestOutPath, app.harvestItv)
+		app.harv.maxLines = app.harvestMax
 		app.harv.deferFirst = *harvestDefer
 	}
 	// Estado persistente: se carga ANTES de la lista para fusionarlo

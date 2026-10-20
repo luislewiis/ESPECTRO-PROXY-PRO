@@ -127,6 +127,22 @@ type App struct {
 	// Auto-Fuentes (harvest.go): recolector continuo de proxies publicos.
 	harv         *Harvester
 	harvestCheck bool // drena health-check de los recien recolectados
+
+	// Ajustes en caliente (settings.go): lo que se cambia desde la
+	// pestana "Configuracion" del panel y se guarda en settings.json.
+	geoPath        string // base MaxMind en uso ("" = sin GeoIP)
+	harvestOn      bool   // Auto-Fuentes activo
+	harvestItv     int    // minutos entre pasadas
+	harvestOutPath string // archivo propio de salida
+	harvestMax     int    // tope de lineas recolectadas
+	explicitFlags  map[string]bool
+	uiMode         string // densidad del panel: "resumen" | "detalle"
+	settingsOff    bool   // --no-settings: no cargar ni guardar settings.json
+
+	// Contadores del health-check para el panel: hilos en vuelo y
+	// reintentos aplicados en el ultimo ciclo.
+	checkActive      atomic.Int64
+	checkRetriesUsed atomic.Int64
 }
 
 func ExpandGlobs(args []string) []string {
@@ -199,11 +215,13 @@ func (a *App) LoadProxies() int {
 		lastCheck int64
 		country   string
 		alt       string
+		connOK    bool
+		connKnown bool
 	}
 	old := make(map[string]pstate)
 	a.mu.Lock()
 	for _, p := range a.proxies {
-		old[p.Key()] = pstate{p.Alive, p.Fails, p.Checked, p.PingMs, p.LastCheck, p.Country, p.AltScheme}
+		old[p.Key()] = pstate{p.Alive, p.Fails, p.Checked, p.PingMs, p.LastCheck, p.Country, p.AltScheme, p.ConnOK, p.ConnKnown}
 	}
 	prev := append([]*Proxy(nil), a.proxies...)
 	disk := a.diskState
@@ -263,6 +281,8 @@ func (a *App) LoadProxies() int {
 				p.LastCheck = st.lastCheck
 				p.Country = st.country
 				p.AltScheme = st.alt
+				p.ConnOK = st.connOK
+				p.ConnKnown = st.connKnown
 			} else if st, ok := disk[p.Key()]; ok {
 				// Sin estado en memoria (reload total / arranque): usar disco.
 				p.Alive = st.Alive
@@ -272,6 +292,8 @@ func (a *App) LoadProxies() int {
 				p.LastCheck = st.LastCheck
 				p.Country = st.Country
 				p.AltScheme = st.Alt
+				p.ConnOK = st.ConnOK
+				p.ConnKnown = st.ConnKnown
 			}
 			proxies = append(proxies, p)
 		}

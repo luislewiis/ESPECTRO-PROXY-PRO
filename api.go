@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -44,6 +45,18 @@ type proxyJSON struct {
 	Alt string `json:"alt,omitempty"`
 	// Effective: esquema con el que realmente se usa el proxy.
 	Effective string `json:"effective,omitempty"`
+	// Country: pais (GeoIP) del proxy.
+	Country string `json:"country,omitempty"`
+	// ConnOK/ConnKnown: si se ha MEDIDO que el proxy sabe tunelizar.
+	ConnOK    bool `json:"conn_ok"`
+	ConnKnown bool `json:"conn_known"`
+	// CooldownS: segundos que le quedan de enfriamiento (0 = ninguno).
+	CooldownS int `json:"cooldown_s"`
+	// Anon: nivel de anonimato si lo midio el checker masivo ("" = sin dato).
+	Anon string `json:"anon,omitempty"`
+	// User/Password: credenciales del proxy (para la linea OB de la ficha).
+	User     string `json:"user,omitempty"`
+	Password string `json:"password,omitempty"`
 }
 
 type statsJSON struct {
@@ -70,6 +83,25 @@ type statsJSON struct {
 	CheckRetries int `json:"check_retries"`
 	// Modo de validacion: "GET" o "CONNECT" (tunel, el que necesita OB).
 	CheckMode2 string `json:"check_kind"`
+	// Metricas del rail lateral (todas medidas, nunca inventadas).
+	LatP50       int        `json:"lat_p50"`
+	LatP90       int        `json:"lat_p90"`
+	AliveHTTP    int        `json:"alive_http"`
+	AliveSocks4  int        `json:"alive_socks4"`
+	AliveSocks5  int        `json:"alive_socks5"`
+	ThreadsNow   int64      `json:"threads_active"`
+	ThreadsTotal int        `json:"threads_total"`
+	RetriesUsed  int64      `json:"retries_used"`
+	SuccessRate  float64    `json:"success_rate"`
+	GeoTop       []geoCount `json:"geo_top"`
+	LastCheck    int64      `json:"last_check_ts"`
+	AliveChecked int        `json:"alive_checked"`
+}
+
+// geoCount: paises con mas proxies vivos (geolocalizacion top).
+type geoCount struct {
+	Country string `json:"country"`
+	Count   int    `json:"count"`
 }
 
 func (a *App) statsSnapshot() statsJSON {
@@ -89,6 +121,61 @@ func (a *App) statsSnapshot() statsJSON {
 	stateFile := ""
 	if p := a.statePathFor(); p != "" {
 		stateFile = filepath.Base(p)
+	}
+	// Metricas del rail: percentiles de latencia, reparto por protocolo y
+	// geolocalizacion top. Todo se mide sobre los proxies VIVOS.
+	p50, p90 := 0, 0
+	var byProto map[string]int
+	geo := map[string]int{}
+	lastCheck := int64(0)
+	a.mu.Lock()
+	for _, p := range a.proxies {
+		if p.LastCheck > lastCheck {
+			lastCheck = p.LastCheck
+		}
+		if !p.Alive {
+			continue
+		}
+		if byProto == nil {
+			byProto = map[string]int{}
+		}
+		byProto[p.EffScheme()]++
+		if p.Country != "" {
+			geo[strings.ToUpper(p.Country)]++
+		}
+	}
+	pinges := make([]int, 0, len(a.proxies))
+	for _, p := range a.proxies {
+		if p.Alive && p.PingMs > 0 {
+			pinges = append(pinges, p.PingMs)
+		}
+	}
+	a.mu.Unlock()
+	if len(pinges) > 0 {
+		sort.Ints(pinges)
+		// Percentil por rango mas cercano (nearest-rank): p50 = mediana,
+		// p90 = el valor por debajo del cual esta el 90% de las muestras.
+		p50 = pinges[(len(pinges)*50+99)/100-1]
+		p90 = pinges[(len(pinges)*90+99)/100-1]
+	}
+	geoTop := make([]geoCount, 0, len(geo))
+	for c, n := range geo {
+		geoTop = append(geoTop, geoCount{Country: c, Count: n})
+	}
+	sort.Slice(geoTop, func(i, j int) bool {
+		if geoTop[i].Count != geoTop[j].Count {
+			return geoTop[i].Count > geoTop[j].Count
+		}
+		return geoTop[i].Country < geoTop[j].Country
+	})
+	if len(geoTop) > 8 {
+		geoTop = geoTop[:8]
+	}
+	req := a.stats.Requests.Load()
+	errs := a.stats.Errors.Load()
+	rate := 0.0
+	if req > 0 {
+		rate = float64(req-errs) / float64(req) * 100
 	}
 	return statsJSON{
 		Requests:     a.stats.Requests.Load(),
@@ -110,6 +197,17 @@ func (a *App) statsSnapshot() statsJSON {
 		CheckMode:    a.checkScopeName(),
 		CheckRetries: a.checkRetries,
 		CheckMode2:   map[bool]string{true: "CONNECT", false: "GET"}[a.checkConnect],
+		LatP50:       p50,
+		LatP90:       p90,
+		AliveHTTP:    byProto["http"],
+		AliveSocks4:  byProto["socks4"] + byProto["socks4a"],
+		AliveSocks5:  byProto["socks5"],
+		ThreadsNow:   a.checkActive.Load(),
+		ThreadsTotal: checkThreads,
+		RetriesUsed:  a.checkRetriesUsed.Load(),
+		SuccessRate:  rate,
+		GeoTop:       geoTop,
+		LastCheck:    lastCheck,
 	}
 }
 
@@ -127,14 +225,24 @@ func (a *App) checkScopeName() string {
 func (a *App) proxiesSnapshot() []proxyJSON {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	now := time.Now().Unix()
 	out := make([]proxyJSON, 0, len(a.proxies))
 	for _, p := range a.proxies {
+		cd := 0
+		if exp, ok := a.enfriar[p.Key()]; ok {
+			if r := int(exp - now); r > 0 {
+				cd = r
+			}
+		}
 		out = append(out, proxyJSON{
 			Scheme: p.Scheme, Host: p.Host, Port: p.Port,
 			Alive: p.Alive, Fails: p.Fails, Tag: p.Tag(),
 			Key:     p.Key(),
 			Checked: p.Checked, PingMs: p.PingMs, LastCheck: p.LastCheck,
 			Alt: p.AltScheme, Effective: p.EffScheme(),
+			Country: p.Country, ConnOK: p.ConnOK, ConnKnown: p.ConnKnown,
+			CooldownS: cd,
+			User:      p.User, Password: p.Password,
 		})
 	}
 	return out
@@ -742,6 +850,38 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 		a.mu.Unlock()
 		a.logf("modo de health-check: %s", mode)
 		jsonOut(w, map[string]interface{}{"ok": true, "check_mode": mode})
+	})
+
+	mux.HandleFunc("/settings", func(w http.ResponseWriter, r *http.Request) {
+		// Ajustes del panel (pestana "Configuracion").
+		// GET  -> ajustes vigentes.  POST -> aplica y guarda en settings.json.
+		if r.Method == http.MethodGet {
+			if !a.leerOK(w, r) {
+				return
+			}
+			jsonOut(w, normSettings(a.currentSettings()))
+			return
+		}
+		if !a.allowPanel(w, r) {
+			return
+		}
+		var s appSettings
+		raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			http.Error(w, "no se pudo leer el cuerpo", http.StatusBadRequest)
+			return
+		}
+		if err := json.Unmarshal(raw, &s); err != nil {
+			http.Error(w, "json invalido: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		cur, err := a.applyAndSave(raw)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		a.logf("ajustes aplicados: %s", cur.CheckMode)
+		jsonOut(w, map[string]interface{}{"ok": true, "settings": cur})
 	})
 
 	mux.HandleFunc("/check", func(w http.ResponseWriter, r *http.Request) {

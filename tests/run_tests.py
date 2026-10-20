@@ -25,7 +25,7 @@ def curl(*args):
 
 def start(*args):
     if GW.lower().endswith(".exe") and args and args[0] == GW:
-        cmd = [GW, *args[1:], "--no-browser", "--no-state"]
+        cmd = [GW, *args[1:], "--no-browser", "--no-state", "--no-settings"]
     else:
         cmd = [sys.executable, *args]
     return subprocess.Popen(cmd, cwd=TEMP,

@@ -34,6 +34,12 @@ type Proxy struct {
 	// cascada de protocolos y, si uno responde, lo deja aqui; el trafico
 	// real usa ese esquema (EffScheme) sin tocar el .txt del usuario.
 	AltScheme string
+
+	// ConnOK/ConnKnown: ¿el proxy sabe tunelizar (CONNECT)? ConnKnown=false
+	// significa "no medido todavia" (el chequeo fue un GET plano, que no
+	// demuestra nada sobre el tunel).
+	ConnOK    bool
+	ConnKnown bool
 }
 
 // EffScheme: esquema efectivo para el trafico. Si el health-check detecto

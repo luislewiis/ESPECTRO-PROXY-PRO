@@ -227,7 +227,7 @@ async function phaseB() {
   fs.writeFileSync(path.join(TMP, 'zz_ui_big.txt'), 'x'.repeat(5 * 1024 * 1024 + 200));
 
   const gw = spawn(EXE, ['--http-port', String(HTTP_PORT), '--api-port', String(API_PORT),
-    '--no-browser', '--check-interval', '0', '--quiet', '--no-state'], { cwd: TMP, stdio: 'ignore', windowsHide: true });
+    '--no-browser', '--check-interval', '0', '--quiet', '--no-state', '--no-settings'], { cwd: TMP, stdio: 'ignore', windowsHide: true });
   let browser;
   const pageErrors = [], consoleErrors = [];
   try {
@@ -1102,7 +1102,7 @@ async function phaseC() {
     Array.from({ length: 20 }, (_, i) => `127.0.0.1:${2000 + i}`).join('\n') + '\n');
   // --harvest-defer: no sale a la red durante el test (espera al intervalo)
   const gw = spawn(EXE, ['--http-port', String(HP), '--api-port', String(APIC), '--no-browser',
-    '--check-interval', '0', '--quiet', '--no-state', '--harvest', '--harvest-defer',
+    '--check-interval', '0', '--quiet', '--no-state', '--no-settings', '--harvest', '--harvest-defer',
     '--harvest-interval', '9999'], { cwd: TMP2, stdio: 'ignore', windowsHide: true });
   let browser;
   const jgetC = async p => (await fetch(BASEC + p)).json();

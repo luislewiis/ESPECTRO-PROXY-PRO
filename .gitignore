@@ -25,6 +25,10 @@ activados.txt
 licencias/
 *.lic
 
+# Ajustes del panel (pestana Configuracion): propios de cada maquina
+settings.json
+settings.json.tmp
+
 # Entorno / residuos de sesiones
 __pycache__/
 node_modules/
