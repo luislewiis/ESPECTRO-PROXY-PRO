@@ -54,6 +54,12 @@ type proxyJSON struct {
 	CooldownS int `json:"cooldown_s"`
 	// Anon: nivel de anonimato si lo midio el checker masivo ("" = sin dato).
 	Anon string `json:"anon,omitempty"`
+	// Capacidad medida: TLS 1.3, HTTP/2 y resolucion DNS remota.
+	TLS13     bool   `json:"tls13"`
+	H2        bool   `json:"h2"`
+	DNSRemote bool   `json:"dns_remote"`
+	DNSMode   string `json:"dns_mode,omitempty"`
+	CapsKnown bool   `json:"caps_known"`
 	// User/Password: credenciales del proxy (para la linea OB de la ficha).
 	User     string `json:"user,omitempty"`
 	Password string `json:"password,omitempty"`
@@ -96,6 +102,13 @@ type statsJSON struct {
 	GeoTop       []geoCount `json:"geo_top"`
 	LastCheck    int64      `json:"last_check_ts"`
 	AliveChecked int        `json:"alive_checked"`
+	// Capacidades medidas de los vivos (caps.go).
+	TLS13       int `json:"tls13"`
+	H2          int `json:"h2"`
+	DNSRemote   int `json:"dns_remote"`
+	Elite       int `json:"anon_elite"`
+	High        int `json:"anon_high"`
+	Transparent int `json:"anon_transparent"`
 }
 
 // geoCount: paises con mas proxies vivos (geolocalizacion top).
@@ -128,6 +141,7 @@ func (a *App) statsSnapshot() statsJSON {
 	var byProto map[string]int
 	geo := map[string]int{}
 	lastCheck := int64(0)
+	tls13, h2n, dnsRemote, elite, high, transpar := 0, 0, 0, 0, 0, 0
 	a.mu.Lock()
 	for _, p := range a.proxies {
 		if p.LastCheck > lastCheck {
@@ -142,6 +156,23 @@ func (a *App) statsSnapshot() statsJSON {
 		byProto[p.EffScheme()]++
 		if p.Country != "" {
 			geo[strings.ToUpper(p.Country)]++
+		}
+		if p.TLS13 {
+			tls13++
+		}
+		if p.H2 {
+			h2n++
+		}
+		if p.DNSRemote {
+			dnsRemote++
+		}
+		switch p.Anon {
+		case "Elite":
+			elite++
+		case "High":
+			high++
+		case "Transparent":
+			transpar++
 		}
 	}
 	pinges := make([]int, 0, len(a.proxies))
@@ -208,6 +239,12 @@ func (a *App) statsSnapshot() statsJSON {
 		SuccessRate:  rate,
 		GeoTop:       geoTop,
 		LastCheck:    lastCheck,
+		TLS13:        tls13,
+		H2:           h2n,
+		DNSRemote:    dnsRemote,
+		Elite:        elite,
+		High:         high,
+		Transparent:  transpar,
 	}
 }
 
@@ -243,7 +280,9 @@ func (a *App) proxiesSnapshot() []proxyJSON {
 			Country: p.Country, ConnOK: p.ConnOK, ConnKnown: p.ConnKnown,
 			CooldownS: cd,
 			User:      p.User, Password: p.Password,
-			Anon: p.Anon,
+			Anon:  p.Anon,
+			TLS13: p.TLS13, H2: p.H2, DNSRemote: p.DNSRemote,
+			DNSMode: p.DNSMode, CapsKnown: p.CapsKnown,
 		})
 	}
 	return out
@@ -432,7 +471,7 @@ func (a *App) allowPanel(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (a *App) APIMux(httpPort int, bind string) *http.ServeMux {
-	gatewayBase := fmt.Sprintf("http://%s:%d", bind, httpPort)
+	gatewayBase := "http://" + net.JoinHostPort(bind, strconv.Itoa(httpPort))
 	a.mu.Lock()
 	a.gateway = gatewayBase
 	a.mu.Unlock()
@@ -531,7 +570,7 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 		jsonOut(w, map[string]interface{}{
 			"session":   session,
 			"gateway":   gatewayBase,
-			"proxy":     fmt.Sprintf("http://%s:clave@%s:%d", session, bind, httpPort),
+			"proxy":     "http://" + session + ":clave@" + net.JoinHostPort(bind, strconv.Itoa(httpPort)),
 			"sticky_on": p.Tag(),
 			"strategy":  a.statsSnapshot().Strategy,
 			"alive":     alive,

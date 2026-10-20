@@ -623,12 +623,22 @@ td.ping{color:var(--faint);white-space:nowrap}
     </div>
 
     <div class="rcard solo-detalle">
-      <h3 onclick="fold(this)">Anonimato (último barrido) <span class="chev">▾</span></h3>
+      <h3 onclick="fold(this)">Capacidades de los vivos <span class="chev">▾</span></h3>
+      <div class="rbody">
+        <div class="rrow"><span class="k">TLS 1.3</span><span class="v ok" id="rTls13">—</span></div>
+        <div class="rrow"><span class="k">HTTP/2 (h2)</span><span class="v cy" id="rH2">—</span></div>
+        <div class="rrow"><span class="k">DNS remoto</span><span class="v vi" id="rDns">—</span></div>
+        <div class="rrow solo-detalle"><span class="k">Medidos</span><span class="v" id="rCaps">—</span></div>
+      </div>
+    </div>
+
+    <div class="rcard solo-detalle">
+      <h3 onclick="fold(this)">Anonimato (medido) <span class="chev">▾</span></h3>
       <div class="rbody">
         <div class="rrow"><span class="k">★ Élite</span><span class="v ok" id="rElite">—</span></div>
         <div class="rrow"><span class="k">◐ Alto</span><span class="v vi" id="rHigh">—</span></div>
         <div class="rrow"><span class="k">◔ Transparente</span><span class="v bad" id="rTransp">—</span></div>
-        <div class="rrow solo-detalle"><span class="k">Fuente</span><span class="v" id="rAnonSrc">checker masivo</span></div>
+        <div class="rrow solo-detalle"><span class="k">Fuente</span><span class="v">health-check / juez</span></div>
       </div>
     </div>
   </aside>
@@ -2811,6 +2821,15 @@ function showFicha(i){
   row('Tunel CONNECT', p.conn_known ? (p.conn_ok ? 'si' : 'no') : 'sin medir',
     'Si el proxy sabe TUNELIZAR (CONNECT). Es lo que necesita OpenBullet para abrir https: un proxy que solo responde GET no sirve.',
     'El health-check en modo CONNECT y el trafico real del gateway.');
+  row('TLS 1.3', p.caps_known ? (p.tls13 ? 'si' : 'no (TLS 1.2 o menos)') : 'sin medir',
+    'Si el tunel del proxy negocia TLS 1.3 con el destino. Algunos sitios con WAF rechazan las huellas TLS antiguas.',
+    'La sonda de capacidad (caps.go), a traves del propio proxy.');
+  row('HTTP/2 (h2)', p.caps_known ? (p.h2 ? 'si' : 'no (http/1.1)') : 'sin medir',
+    'Si el tunel negocia HTTP/2 por ALPN. Muchos sitios migran a h2 y con h1 van peor o te bloquean.',
+    'La sonda de capacidad (caps.go), a traves del propio proxy.');
+  row('DNS', p.caps_known ? (p.dns_mode || (p.dns_remote ? 'remoto' : 'local')) : 'sin medir',
+    'Donde se resuelve el dominio de destino. "Remoto" = lo resuelve el proxy (sin fuga de DNS). "Local" = lo resolvemos nosotros (se delata que usas proxy).',
+    'El transporte SOCKS4a/SOCKS5/CONNECT del gateway.');
   row('Fallos seguidos', String(p.fails),
     'Fallos seguidos en trafico real. Con 3, el gateway lo marca muerto y lo aparta de la rotacion.',
     'El trafico que pasa por el gateway.');
@@ -2933,6 +2952,14 @@ function updateRail(st){
       ? geo.map(c => '<span class="rchip">' + esc(c.country) + ' <b>' + c.count + '</b></span>').join('')
       : '<span class="rchip">sin datos GeoIP</span>';
   }
+  // capacidades medidas (TLS 1.3 / HTTP2 / DNS remoto) y anonimato
+  setTxt('rTls13', (st.tls13 || 0) + ' de ' + st.alive);
+  setTxt('rH2', (st.h2 || 0) + ' de ' + st.alive);
+  setTxt('rDns', (st.dns_remote || 0) + ' de ' + st.alive);
+  setTxt('rCaps', st.tls13 != null ? 'sonda TLS' : '—');
+  setTxt('rElite', st.anon_elite != null ? st.anon_elite : '—');
+  setTxt('rHigh', st.anon_high != null ? st.anon_high : '—');
+  setTxt('rTransp', st.anon_transparent != null ? st.anon_transparent : '—');
   // pool y vivos en la cabecera
   setTxt('poolPill', 'pool: ' + st.total);
   setTxt('alivePill', 'vivos: ' + st.alive);

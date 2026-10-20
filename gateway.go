@@ -491,7 +491,11 @@ func (a *App) tunnel(client net.Conn, clientBr *bufio.Reader, up net.Conn, upBr 
 	done1 := make(chan error, 1)
 	done2 := make(chan error, 1)
 	go func() {
-		bp := tunnelBufPool.Get().(*[]byte)
+		bp, _ := tunnelBufPool.Get().(*[]byte)
+		if bp == nil {
+			done1 <- nil
+			return
+		}
 		_, err := io.CopyBuffer(&countingWriter{w: updst, up: true, st: &a.stats}, csrc, *bp)
 		tunnelBufPool.Put(bp)
 		if cw, ok := up.(interface{ CloseWrite() error }); ok {
@@ -500,7 +504,11 @@ func (a *App) tunnel(client net.Conn, clientBr *bufio.Reader, up net.Conn, upBr 
 		done1 <- err
 	}()
 	go func() {
-		bp := tunnelBufPool.Get().(*[]byte)
+		bp, _ := tunnelBufPool.Get().(*[]byte)
+		if bp == nil {
+			done2 <- nil
+			return
+		}
 		_, err := io.CopyBuffer(&countingWriter{w: cdst, st: &a.stats}, upsrc, *bp)
 		tunnelBufPool.Put(bp)
 		if cw, ok := client.(interface{ CloseWrite() error }); ok {

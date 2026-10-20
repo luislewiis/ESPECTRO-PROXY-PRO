@@ -136,6 +136,7 @@ type App struct {
 	harvestOutPath string // archivo propio de salida
 	harvestMax     int    // tope de lineas recolectadas
 	explicitFlags  map[string]bool
+	capsHost       string // host:port para la sonda de TLS 1.3 / HTTP2 ("" = el del test-url)
 	uiMode         string // densidad del panel: "resumen" | "detalle"
 	settingsOff    bool   // --no-settings: no cargar ni guardar settings.json
 
@@ -222,11 +223,17 @@ func (a *App) LoadProxies() int {
 		connOK    bool
 		connKnown bool
 		anon      string
+		tls13     bool
+		h2        bool
+		dnsRemote bool
+		dnsMode   string
+		capsKnown bool
+		capsAt    int64
 	}
 	old := make(map[string]pstate)
 	a.mu.Lock()
 	for _, p := range a.proxies {
-		old[p.Key()] = pstate{p.Alive, p.Fails, p.Checked, p.PingMs, p.LastCheck, p.Country, p.AltScheme, p.ConnOK, p.ConnKnown, p.Anon}
+		old[p.Key()] = pstate{p.Alive, p.Fails, p.Checked, p.PingMs, p.LastCheck, p.Country, p.AltScheme, p.ConnOK, p.ConnKnown, p.Anon, p.TLS13, p.H2, p.DNSRemote, p.DNSMode, p.CapsKnown, p.CapsAt}
 	}
 	prev := append([]*Proxy(nil), a.proxies...)
 	disk := a.diskState
@@ -289,6 +296,8 @@ func (a *App) LoadProxies() int {
 				p.ConnOK = st.connOK
 				p.ConnKnown = st.connKnown
 				p.Anon = st.anon
+				p.TLS13, p.H2, p.DNSRemote = st.tls13, st.h2, st.dnsRemote
+				p.DNSMode, p.CapsKnown, p.CapsAt = st.dnsMode, st.capsKnown, st.capsAt
 			} else if st, ok := disk[p.Key()]; ok {
 				// Sin estado en memoria (reload total / arranque): usar disco.
 				p.Alive = st.Alive
@@ -301,6 +310,8 @@ func (a *App) LoadProxies() int {
 				p.ConnOK = st.ConnOK
 				p.ConnKnown = st.ConnKnown
 				p.Anon = st.Anon
+				p.TLS13, p.H2, p.DNSRemote = st.TLS13, st.H2, st.DNSRemote
+				p.DNSMode, p.CapsKnown, p.CapsAt = st.DNSMode, st.CapsKnown, st.CapsAt
 			}
 			proxies = append(proxies, p)
 		}
@@ -698,7 +709,14 @@ func (a *App) applyListChanges(edits map[string]map[string]string) []string {
 			continue
 		}
 		tmp := file + ".tmp"
-		if err := os.WriteFile(tmp, []byte(strings.Join(out, "\n")), 0644); err != nil {
+		// Se conservan los permisos originales del archivo del usuario: una
+		// lista con credenciales (user:pass@host) no debe pasar de 0600 a
+		// 0640 solo por reescribirla.
+		mode := os.FileMode(0644)
+		if fi, err := os.Stat(file); err == nil {
+			mode = fi.Mode().Perm()
+		}
+		if err := os.WriteFile(tmp, []byte(strings.Join(out, "\n")), mode); err != nil {
 			a.logf("no se pudo reescribir %s: %v", filepath.Base(file), err)
 			continue
 		}

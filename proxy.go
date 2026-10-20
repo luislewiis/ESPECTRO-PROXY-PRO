@@ -46,6 +46,15 @@ type Proxy struct {
 	// el health-check en modo GET (comparando la IP propia con la que
 	// devuelve el proxy). Se persiste con el resto del estado.
 	Anon string
+
+	// Capacidad medida del proxy (caps.go): TLS 1.3, HTTP/2 (ALPN h2) y
+	// si el DNS se resuelve en el proxy (sin fuga) o aqui (fuga).
+	TLS13     bool
+	H2        bool
+	DNSRemote bool
+	DNSMode   string
+	CapsKnown bool
+	CapsAt    int64
 }
 
 // EffScheme: esquema efectivo para el trafico. Si el health-check detecto

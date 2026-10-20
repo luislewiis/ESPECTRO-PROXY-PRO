@@ -717,7 +717,7 @@ func (h *Harvester) appendNew(list []*Proxy) error {
 	if dir := filepath.Dir(h.out); dir != "" {
 		_ = os.MkdirAll(dir, 0o755)
 	}
-	f, err := os.OpenFile(h.out, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(h.out, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
@@ -835,7 +835,7 @@ func (h *Harvester) Purge() (int, error) {
 		return 0, nil
 	}
 	tmp := h.out + ".tmp"
-	if err := os.WriteFile(tmp, []byte(strings.Join(keep, "\n")+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(tmp, []byte(strings.Join(keep, "\n")+"\n"), 0o600); err != nil {
 		return 0, err
 	}
 	if err := os.Rename(tmp, h.out); err != nil {

@@ -208,6 +208,8 @@ func deepCheck(p *Proxy, sp checkSpec) (bool, int, string, int) {
 		// Aqui NO se busca seguridad de transporte (la valida el navegador
 		// del usuario), se busca saber si el proxy DEVUELVE la pagina real:
 		// exigir una cadena valida descartaria proxies usables.
+		// #nosec G402 -- a proposito: aqui no se busca seguridad de
+		// transporte, sino saber si el proxy DEVUELVE la pagina real.
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	if p.EffScheme() == "http" {
@@ -400,6 +402,17 @@ func clasificaAnon(body, realIP string) string {
 	return ""
 }
 
+// anonFromBody: nivel de anonimato de un proxy a partir del cuerpo que
+// devolvio. Si el cuerpo es un ECO de cabeceras (juez), se usa la
+// clasificacion fina (Elite/High/Transparent) teniendo en cuenta nuestra IP
+// real; si no, la comparacion de IPs.
+func (a *App) anonFromBody(scheme, body, realIP string) string {
+	if bodyLooksLikeEcho(body) {
+		return anonLevelFor(scheme, body, realIP)
+	}
+	return clasificaAnon(body, realIP)
+}
+
 // checkThreads: comprobaciones simultaneas del health-check (el panel lo
 // muestra como "hilos activos / total").
 const checkThreads = 64
@@ -508,11 +521,12 @@ func (a *App) runChecksScope(scope string) {
 			}
 			if ok {
 				p.PingMs = ping
-				// Anonimato: si el proxy devuelve NUESTRA IP es
-				// transparente; si devuelve otra, oculta nuestra IP.
-				// (El nivel Elite/High exacto lo afina el juez del
-				// checker masivo; aqui es una medida real y honesta.)
-				if lvl := clasificaAnon(body, realIP); lvl != "" {
+				// Anonimato: si el cuerpo es un ECO de las cabeceras (un
+				// juez tipo httpbin/azenv) se clasifica al detalle (Elite /
+				// High / Transparent). Si no, se compara la IP que devuelve
+				// el proxy con la NUESTRA: si coincide, es transparente; si
+				// no, oculta nuestra IP (High).
+				if lvl := a.anonFromBody(usedScheme, body, realIP); lvl != "" {
 					p.Anon = lvl
 				}
 				// Protocolo real detectado: si el proxy declaraba otro, se
@@ -564,6 +578,10 @@ func (a *App) runChecksScope(scope string) {
 	if n := nReclas.Load(); n > 0 {
 		a.logf("health-check: %d proxies responden con otro protocolo (usando el real)", n)
 	}
+	// Sonda de capacidad (TLS 1.3 / HTTP2 / DNS remoto) de los vivos que
+	// todavia no la tienen. Es un handshake TLS por proxy, con tope por
+	// ciclo para no generar una avalancha.
+	a.probeCapsPool(40)
 	a.scheduleStateSave()
 	alive, total := a.counts()
 	a.logf("health-check: %d/%d vivos (revisados %d)", alive, total, len(checkPs))

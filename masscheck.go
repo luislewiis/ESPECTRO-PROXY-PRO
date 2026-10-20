@@ -1255,7 +1255,7 @@ func (j *massJob) writeReport(a *App) {
 	}
 	// Un fallo al escribir el informe no puede pasar en silencio: es el
 	// resumen del trabajo del usuario (auditoria 17/10/2026).
-	if err := os.WriteFile(filepath.Join(dir, "Report.json"), j.reportBytes(), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "Report.json"), j.reportBytes(), 0600); err != nil {
 		a.logf("no se pudo escribir Report.json en %s: %v", dir, err)
 	}
 }

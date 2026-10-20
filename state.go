@@ -28,6 +28,13 @@ type stateEntry struct {
 	ConnKnown bool `json:"conn_known,omitempty"`
 	// Anon: nivel de anonimato medido (Elite/High/Transparent).
 	Anon string `json:"anon,omitempty"`
+	// Capacidad: TLS 1.3, HTTP/2 y resolucion DNS remota.
+	TLS13     bool   `json:"tls13,omitempty"`
+	H2        bool   `json:"h2,omitempty"`
+	DNSRemote bool   `json:"dns_remote,omitempty"`
+	DNSMode   string `json:"dns_mode,omitempty"`
+	CapsKnown bool   `json:"caps_known,omitempty"`
+	CapsAt    int64  `json:"caps_at,omitempty"`
 }
 
 // statePathFor devuelve la ruta del archivo de estado ("" = desactivado).
@@ -113,7 +120,9 @@ func (a *App) saveState() {
 				Alive: p.Alive, Fails: p.Fails, Checked: p.Checked,
 				PingMs: p.PingMs, LastCheck: p.LastCheck, Country: p.Country,
 				Alt: p.AltScheme, ConnOK: p.ConnOK, ConnKnown: p.ConnKnown,
-				Anon: p.Anon,
+				Anon:  p.Anon,
+				TLS13: p.TLS13, H2: p.H2, DNSRemote: p.DNSRemote,
+				DNSMode: p.DNSMode, CapsKnown: p.CapsKnown, CapsAt: p.CapsAt,
 			}})
 		}
 		encogio := end < start+stateSaveChunk // el pool se sustituyo a mitad

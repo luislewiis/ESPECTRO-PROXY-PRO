@@ -195,7 +195,7 @@ func (a *App) appendActivados(path string, lines []string) (int, error) {
 	if len(nuevos) == 0 {
 		return 0, nil
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return 0, err
 	}

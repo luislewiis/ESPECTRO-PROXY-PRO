@@ -165,6 +165,8 @@ func tuneTCP() error {
 		`reg add "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v TcpTimedWaitDelay /t REG_DWORD /d 30 /f`,
 		`reg add "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v MaxUserPort /t REG_DWORD /d 65534 /f`,
 	}
+	// #nosec G204 -- los comandos son constantes de este fichero (no hay
+	// entrada del usuario en la linea de orden).
 	for _, c := range cmds {
 		cmd := exec.Command("powershell", "-NoProfile", "-Command",
 			fmt.Sprintf("Start-Process -FilePath 'cmd' -ArgumentList '/c %s' -Verb RunAs -Wait", c))

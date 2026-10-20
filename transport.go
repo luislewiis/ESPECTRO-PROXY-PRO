@@ -31,9 +31,11 @@ const transporteTTL = 90 * time.Second
 func (a *App) transportePara(p *Proxy) *http.Transport {
 	key := p.Key()
 	if v, ok := a.tp.Load(key); ok {
-		e := v.(*transporteEntry)
-		e.lastUsed.Store(time.Now().UnixNano())
-		return e.t
+		// Asercion comprobada: un panic aqui tumbaria el gateway entero.
+		if e, ok2 := v.(*transporteEntry); ok2 {
+			e.lastUsed.Store(time.Now().UnixNano())
+			return e.t
+		}
 	}
 	e := &transporteEntry{t: &http.Transport{ // keep-alive ON: reutilizar conexiones al mismo upstream (sticky, y
 		// rotacion con tasa alta sobre pool pequeno).
@@ -95,8 +97,11 @@ func (a *App) transportePara(p *Proxy) *http.Transport {
 		// Carrera con otra goroutine: se queda el ya guardado y el nuestro
 		// se recicla (sus conexiones idle se cierran aqui).
 		e.t.CloseIdleConnections()
-		v.(*transporteEntry).lastUsed.Store(time.Now().UnixNano())
-		return v.(*transporteEntry).t
+		if w, ok2 := v.(*transporteEntry); ok2 {
+			w.lastUsed.Store(time.Now().UnixNano())
+			return w.t
+		}
+		return e.t
 	}
 	return e.t
 }
@@ -119,7 +124,10 @@ func (a *App) TransportSweeper() {
 func (a *App) sweepTransportes(now time.Time) {
 	limite := now.Add(-transporteTTL).UnixNano()
 	a.tp.Range(func(k, v any) bool {
-		e := v.(*transporteEntry)
+		e, ok := v.(*transporteEntry)
+		if !ok {
+			return true
+		}
 		if e.lastUsed.Load() < limite {
 			e.t.CloseIdleConnections()
 			a.tp.Delete(k)

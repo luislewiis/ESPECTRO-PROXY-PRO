@@ -188,6 +188,55 @@ medidos**: si algo no se ha medido, se muestra "—" en vez de inventarlo.
   programa, gitignored). **Los flags de la línea de comandos mandan** sobre el
   fichero: si arrancaste con `--check-mode full`, el panel no lo pisa.
 
+## Capacidad real del proxy (TLS 1.3 · HTTP/2 · DNS · anonimato)
+
+Que el proxy "responda" no es lo mismo que "pueda con tu tráfico real". El
+gateway lo **mide** (sonda `caps.go`, a través del propio proxy, con el
+mismo transporte que usa el tráfico):
+
+| Dato | Cómo se mide | Dónde se ve |
+|---|---|---|
+| **TLS 1.3** | handshake TLS real por el túnel, leyendo la versión negociada | ficha del proxy + rail "Capacidades" |
+| **HTTP/2 (ALPN h2)** | el mismo handshake, leyendo el ALPN | ficha + rail |
+| **DNS remoto** | si el destino se manda como **nombre** (lo resuelve el proxy) o como IP (lo resolvemos nosotros) | ficha (modo exacto: SOCKS5 / SOCKS4a / CONNECT / IP local) |
+| **Anonimato** | si el destino es un **juez** (eco de cabeceras) → `Elite` / `High` / `Transparent`; si es un eco de IP → `Transparent` (nos ve) o `High` (nos oculta) | ficha + rail |
+
+- El anonimato fino solo sale si apuntas el chequeo a un juez (p. ej.
+  `--test-url https://un-juez/ --success-key ...`): si el cuerpo de la
+  respuesta parece un eco de cabeceras, se detecta solo y se clasifica al
+  detalle **sin pedir nada más**.
+- Coste: **2 peticiones por proxy vivo y día** (1 handshake TLS + 1 GET), con
+  tope de 40 por ciclo de health-check. El resultado se cachea 24 h y se
+  persiste con el estado.
+- La sonda ignora el certificado a propósito (`#nosec G402`): solo le
+  interesan la versión y el ALPN; la validez del certificado la comprueba el
+  navegador del usuario.
+
+## Auditoría del proyecto (20/10/2026)
+
+Revisión completa con `staticcheck`, `golangci-lint --enable-all` (incluido
+`gosec`), `go test -race`, cobertura y revisión manual de los caminos
+críticos. Hallazgos y correcciones aplicadas:
+
+| # | Hallazgo | Severidad | Estado |
+|---|---|---|---|
+| 1 | El aviso de `--bind` decía "pon un firewall o `--api-token`", pero **el token no protege el puerto proxy** (es un relay abierto: el token protege solo la API) | MEDIA | **Corregido**: el aviso ahora lo dice explícitamente |
+| 2 | Al reescribir una lista del usuario se perdían sus permisos (una lista con `user:pass` podía pasar de `0600` a `0644`) | MEDIA | **Corregido**: se conserva el modo original |
+| 3 | `harvested.txt`, `activados.txt` y `Report.json` (pueden contener credenciales) se escribían con `0644` | MEDIA | **Corregido**: `0600` |
+| 4 | `host:port` construido con `Sprintf` en 3 sitios (se rompe con IPv6) | MEDIA | **Corregido**: `net.JoinHostPort` |
+| 5 | 7 aserciones de tipo sin comprobar: un panic tumbaba el gateway entero | MEDIA | **Corregido**: aserciones seguras |
+| 6 | El anonimato no se medía en modo CONNECT (el caso por defecto) | MEDIA | **Corregido**: la sonda de capacidad mide el anonimato aparte |
+| 7 | El clasificador daba "Transparente" ante cualquier `X-Forwarded-For` (demasiado grueso) | BAJA | **Corregido**: ahora compara con nuestra IP real (nuestra IP en la cadena = transparente; otra = `High`) |
+| 8 | `G402` (certificado sin validar) y `G204` (subproceso) sin justificación | BAJA | **Corregido**: `#nosec` con el motivo escrito |
+| 9 | `/get` y `/stats` son públicos en el puerto de API (filtran qué proxy está fijado y rutas de archivos) | INFO | **Documentado**: es a propósito (el enlace mágico se comparte); con `--bind` fuera de loopback, el aviso lo dice |
+| 10 | `math/rand` para elegir estrategia/juez (no es sensible) | INFO | Documentado, sin cambio |
+| 11 | `errcheck`: 27 errores de escritura/deadline sin comprobar en producción | INFO | Son escrituras a cliente o deadlines: el bucle termina igual. Sin cambio (ruido) |
+
+Herramientas: `staticcheck` **0**, `go vet` limpio, `gofmt` limpio,
+`go test -race` PASS, cobertura **70,3 %**, `gosec` (vía golangci-lint) sin
+hallazgos abiertos, suites externas **19/19 · 112/112 · 318/0**, Snyk SAST 57
+(triage documentado) y SCA 0.
+
 ## Auto-Fuentes (`--harvest`): recolección continua sin intervención
 
 El gateway deja de depender de que tú pegues listas: recolecta solo, cada

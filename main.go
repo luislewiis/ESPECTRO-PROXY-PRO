@@ -263,6 +263,7 @@ func main() {
 	checkKey := flag.String("success-key", "", "texto que debe aparecer en el cuerpo de la respuesta para dar el proxy por valido (validacion de contenido, estilo Proxy Checker). Requiere que --test-url devuelva ese texto")
 	geoMMDB := flag.String("geo-mmdb", "", "ruta de una base MaxMind DB de paises (GeoLite2-Country.mmdb / DbipLite-Country.mmdb) para GeoIP offline sin limites de tasa. Vacio = autodetecta en el directorio actual")
 	activateOut := flag.String("activate-out", activateOutDefault, "archivo propio donde el checker guarda los proxies ACTIVADOS por pais (nunca toca proxies.txt ni harvested.txt)")
+	capsHost := flag.String("caps-host", "", "host:puerto para la sonda de capacidad (TLS 1.3 / HTTP2 / DNS remoto) de los proxies vivos. Vacio = el host del --test-url por 443")
 	checkAll := flag.Bool("check-all", false, "alias de --check-mode full: el auto-check revisa tambien los muertos verificados (default: solo vivos + sin verificar)")
 	checkMode := flag.String("check-mode", "alive", "modo del auto-check: alive (solo vivos + sin verificar, default) | full (chequeo COMPLETO de la lista en cada ciclo)")
 	noCooldown := flag.Bool("no-cooldown", false, "desactiva el enfriamiento de proxies fallados en la rotacion (A/B y diagnostico)")
@@ -303,7 +304,11 @@ func main() {
 	}
 
 	if *bind != "127.0.0.1" && *bind != "localhost" && *bind != "::1" {
-		fmt.Printf("[gw] AVISO: --bind %s expone el gateway y la API SIN autenticacion a la red local. El gateway es un proxy de reenvio (acepta CONNECT a cualquier destino): cualquiera que lo alcance puede usarlo. Pon un firewall o --api-token.\n", *bind)
+		fmt.Printf("[gw] AVISO: --bind %s EXPONE EL GATEWAY A LA RED.\n", *bind)
+		fmt.Printf("[gw]   - El puerto proxy (--http-port) es un RELAY ABIERTO: no pide token ni clave,\n")
+		fmt.Printf("[gw]     cualquiera que lo alcance puede usar tu pool de proxies.\n")
+		fmt.Printf("[gw]   - --api-token solo protege la API/panel (--api-port), NO el puerto proxy.\n")
+		fmt.Printf("[gw]   Para protegerlo: deja --bind en 127.0.0.1 o pon un firewall que filtre ese puerto.\n")
 	}
 
 	// doble-click UX: oculta la consola ya al arrancar (evita el parpadeo
@@ -394,6 +399,7 @@ func main() {
 	app.explicitFlags = map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { app.explicitFlags[f.Name] = true })
 	app.geoPath = geoPath
+	app.capsHost = strings.TrimSpace(*capsHost)
 	app.harvestOutPath = *harvestOut
 	app.harvestMax = *harvestMaxLines
 	app.harvestItv = *harvestItv
@@ -573,7 +579,7 @@ func main() {
 		go app.harv.Loop() // Auto-Fuentes: recoleccion continua (harvest.go)
 	}
 
-	apiBase := fmt.Sprintf("http://%s:%d", *bind, *apiPort)
+	apiBase := "http://" + net.JoinHostPort(*bind, strconv.Itoa(*apiPort))
 	// El banner informativo (marca, endpoints, estrategia, estado) vive
 	// DENTRO del programa: seccion "Info de arranque" del panel y pagina /.
 	// La consola solo emite eventos.

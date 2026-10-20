@@ -201,7 +201,9 @@ func (g *geoDB) countryRecIP(host string) countryRec {
 		return countryRec{}
 	}
 	if v, ok := g.cache.Load(host); ok {
-		return v.(countryRec)
+		if c, ok2 := v.(countryRec); ok2 {
+			return c
+		}
 	}
 	var out countryRec
 	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
