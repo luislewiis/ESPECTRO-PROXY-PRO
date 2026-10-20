@@ -321,10 +321,10 @@ func TestProxyRotateHeader(t *testing.T) {
 func TestProxyTxtAdvancedFilters(t *testing.T) {
 	a := NewApp(nil, "round-robin", true, 0, "")
 	a.proxies = []*Proxy{
-		{Scheme: "http", Host: "10.0.0.1", Port: 8080, Country: "US", PingMs: 120, Alive: true},
-		{Scheme: "socks5", Host: "10.0.0.2", Port: 1080, Country: "DE", PingMs: 250, Alive: true},
-		{Scheme: "socks4", Host: "10.0.0.3", Port: 1080, Country: "US", PingMs: 0, Alive: false},
-		{Scheme: "http", Host: "10.0.0.4", Port: 8080, Country: "FR", PingMs: 600, Alive: true},
+		{Scheme: "http", Host: "10.0.0.1", Port: 8080, Country: "US", PingMs: 120, Alive: true, Checked: true},
+		{Scheme: "socks5", Host: "10.0.0.2", Port: 1080, Country: "DE", PingMs: 250, Alive: true, Checked: true},
+		{Scheme: "socks4", Host: "10.0.0.3", Port: 1080, Country: "US", PingMs: 0, Alive: false, Checked: true},
+		{Scheme: "http", Host: "10.0.0.4", Port: 8080, Country: "FR", PingMs: 600, Alive: true, Checked: true},
 	}
 	a.mu.Lock()
 	a.refreshIdxLocked()

@@ -376,7 +376,9 @@ func TestProxyTxtFiltroScheme(t *testing.T) {
 	}{
 		{"/proxy.txt", []string{"11.1.1.1:1080", "11.1.1.2:1080", "22.1.1.1:1080", "33.1.1.1:3128", "44.1.1.1:1080"}},
 		{"/proxy.txt?scheme=socks5", []string{"11.1.1.1:1080", "11.1.1.2:1080"}},
-		{"/proxy.txt?scheme=socks4", []string{"22.1.1.1:1080"}},
+		// socks4 agrupa socks4a (el checker y el export OB tampoco distinguen:
+		// OB solo tiene el tipo 1). Para pedir SOLO 4a: scheme=socks4a.
+		{"/proxy.txt?scheme=socks4", []string{"22.1.1.1:1080", "44.1.1.1:1080"}},
 		{"/proxy.txt?scheme=socks4a", []string{"44.1.1.1:1080"}},
 		{"/proxy.txt?scheme=http", []string{"33.1.1.1:3128"}},
 	}
@@ -386,9 +388,11 @@ func TestProxyTxtFiltroScheme(t *testing.T) {
 			t.Errorf("%s = %v, esperaba %v", c.url, got, c.want)
 		}
 	}
-	// formato OB con filtro: el tipo sale correcto (2 = socks5)
+	// formato OB con filtro: el tipo sale correcto (1 = socks4/4a) y el grupo
+	// socks4 incluye el 4a, igual que la lista plana.
 	got := get("/proxy.txt?format=ob&scheme=socks4")
-	if len(got) != 1 || !strings.HasPrefix(got[0], "1:22.1.1.1:1080:") {
+	if len(got) != 2 || !strings.HasPrefix(got[0], "1:22.1.1.1:1080:") ||
+		!strings.HasPrefix(got[1], "1:44.1.1.1:1080:") {
 		t.Errorf("format=ob&scheme=socks4 = %v", got)
 	}
 }

@@ -46,6 +46,7 @@ compartida la consola no se toca y `--console` la mantiene visible.
 | `--api-token` | *(vacío)* | Token opcional para endpoints mutantes (header `X-API-Token`) |
 | `--allow-any-path` | `false` | Desactiva la jaula de rutas de `/validate` e `/import` |
 | `--idle-timeout` | `600` | Watchdog de inactividad en conexiones (0 = off) |
+| `--upstream-timeout` | `120` | Tope **total** (cabeceras + cuerpo) por petición relayada por la vía HTTP; corta upstreams que gotean el cuerpo (0 = sin tope) |
 | `--tune-tcp` | `false` | Afina el stack TCP de Windows (puertos dinámicos a 64k y TimedWaitDelay 30s) para alta concurrencia (300+ bots) y sale |
 | `--harvest` | `false` | **Auto-Fuentes**: recolecta proxies de ~50 fuentes públicas en bucle y descubre fuentes nuevas solo (ver más abajo) |
 | `--harvest-interval` | `15` | Minutos entre pasadas del Auto-Fuentes |
@@ -111,7 +112,9 @@ catálogos de *otros* scrapers (meta-harvesting) y las prueba antes de aceptarla
 ### Política "solo vivo y filtrado"
 
 Lo recolectado entra al pool como **no vivo y sin verificar**, así que
-`/proxy.txt?alive=1` — lo que come OB — **jamás** entrega un proxy sin validar.
+`/proxy.txt?alive=1` — lo que come OB — **jamás** entrega un proxy sin validar
+(exige `Alive && Checked`; el modo optimista es opt-in con
+`?alive=1&include_unchecked=1`).
 Esto es lo que evita las "pausas": la basura de las listas gratis (≈98% muerta)
 nunca llega a tus bots.
 
@@ -264,12 +267,18 @@ filtro "brasil" -> 1 vivo · "united states" -> 14 · "GB" -> 1 · "reino unido"
 - **Lectura (GET)**: `/get?session=X`, `/stats`, `/proxies`, `/logs`, `/proxy.txt`, `/panel`
   - `/proxies?limit=&offset=&sort=ping` (JSON con `checked`, `ping_ms`, `last_check`).
   - `/proxy.txt` exporta la lista de proxies con soporte de filtros:
-    - `?alive=1`: Solo proxies actualmente vivos.
+    - `?alive=1`: Solo proxies **vivos y validados** (`Alive && Checked`). Tras un
+      arranque limpio, tu propia lista no aparece aquí hasta que el health-check
+      la valide (o la actives desde el checker): así se cumple la política "solo
+      vivo y filtrado". Para el modo optimista histórico (servir la lista recién
+      cargada aunque no esté verificada) añade `&include_unchecked=1`.
     - `?country=US`: Solo proxies de un país específico. Acepta **varios**
       (`?country=BR,US`), ISO o nombre en inglés/español (`brasil`, `reino unido`).
       Vacío o `all` = todos.
     - `?max_ping=400`: Solo proxies con latencia $\le$ 400 ms.
     - `?scheme=socks5` (o `?proto=socks5`): Solo proxies con ese protocolo.
+      `scheme=socks4` **incluye** `socks4a` (igual que el checker y el export OB,
+      que no distinguen 4a); `scheme=socks4a` pide solo 4a.
     - `?sort=ping`: Ordena por menor latencia primero.
     - `?format=ob`: Formato nativo OpenBullet (`tipo:host:puerto:user:pass`).
     - `?format=full`: Formato URI completo (`scheme://host:port`).
@@ -377,6 +386,30 @@ node tests\test_panel_ui.mjs     # suite UI boton a boton (300: vm + 2x Chrome h
   `markOK` lo readmite ya; pools < 8 vivos no se enfrían (se prueban
   todos); purga al superar 512 entradas; `--no-cooldown` lo desactiva.
 - **RED-01**: `--idle-timeout` refresca deadlines en cada Read/Write de túnel.
+- **Tope upstream (17/10/2026)**: `--upstream-timeout` (120s) acota la petición
+  relayada completa (cabeceras + cuerpo). `ResponseHeaderTimeout` (10s) solo
+  cubría las cabeceras: un upstream que respondía 200 y luego goteaba el cuerpo
+  retenía la conexión indefinidamente. El túnel `CONNECT` ya tenía el watchdog
+  de inactividad. `0` = sin tope (comportamiento clásico).
+- **`/proxy.txt?alive=1` estricto (17/10/2026)**: exige `Alive && Checked`, así
+  que la promesa "jamás entrega un proxy sin validar" también se cumple con tus
+  propias listas en un arranque limpio (antes `ParseProxyDef` marcaba
+  `Alive=true` y OB recibía 12k+ proxies sin verificar). `include_unchecked=1`
+  recupera el modo optimista; `include_unchecked` no afecta al relay interno,
+  que sigue usando la lista viva.
+- **`scheme=socks4` agrupa `socks4a`**: una sola semántica en todo el producto
+  (checker `protoMatch`, export OB —tipo 1— y `/proxy.txt`). `scheme=socks4a`
+  sigue siendo exacto.
+- **Superficie de red**: el gateway es un proxy de reenvío por diseño (acepta
+  `CONNECT` a cualquier host:puerto). Se escucha en loopback por defecto y
+  `--bind` no-loopback imprime un aviso: si lo expones a la LAN, pon un firewall
+  o `--api-token` (la API/panel NO tienen autenticación propia).
+- **Triage Snyk (17/10/2026)**: `SAST 57` son falsos positivos verificados — 11
+  `javascript/DOMXSS` en `panel.html` (todo `innerHTML` pasa por `esc()`) y 2
+  `go/PT` (`import.go` lee tras `rutaPermitida`; `editProxy` escribe a
+  `p.File`, que viene del pool, no del request). `SCA 0`. Los códigos no se
+  "silencian" con ficheros de política a propósito: un ignore global taparía
+  XSS/path-traversal futuros.
 - **Sesiones**: mapa `session → clave Key()` con TTL 10 min y cap 10k;
   sobreviven a `/reload`; se limpian al marcar el proxy muerto.
 - **Ventana WebView2 con perfil por instancia**: cada proceso usa su propio

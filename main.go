@@ -256,6 +256,7 @@ func main() {
 	apiToken := flag.String("api-token", "", "token opcional: exige X-API-Token en mutantes y en lecturas sensibles (/proxies, /proxy.txt, /checker/status, /checker/hits|export)")
 	allowAnyPath := flag.Bool("allow-any-path", false, "permitir /validate y /import con rutas fuera de los directorios permitidos")
 	idleTimeout := flag.Int("idle-timeout", 600, "segundos de inactividad maxima en conexiones (0 = off) - watchdog RED-01")
+	upstreamTimeout := flag.Int("upstream-timeout", 120, "segundos maximos por peticion relayada por la via HTTP (cabeceras + cuerpo); corta upstreams que gotean (0 = sin tope)")
 	checkTimeoutMs := flag.Int("check-timeout", 5000, "timeout en ms por intento de health-check")
 	checkRetries := flag.Int("check-retries", 1, "reintentos extra por proxy antes de darlo por muerto (0 = sin reintentos)")
 	checkConnect := flag.Bool("check-connect", false, "el health-check usa CONNECT (tunel) en vez de GET: detecta proxies que pasan el check pero no tunelizan (502 en CONNECT)")
@@ -300,7 +301,7 @@ func main() {
 	}
 
 	if *bind != "127.0.0.1" && *bind != "localhost" && *bind != "::1" {
-		fmt.Printf("[gw] AVISO: --bind %s expone el gateway y la API SIN autenticacion a la red local. Usa un firewall o --api-token.\n", *bind)
+		fmt.Printf("[gw] AVISO: --bind %s expone el gateway y la API SIN autenticacion a la red local. El gateway es un proxy de reenvio (acepta CONNECT a cualquier destino): cualquiera que lo alcance puede usarlo. Pon un firewall o --api-token.\n", *bind)
 	}
 
 	// doble-click UX: oculta la consola ya al arrancar (evita el parpadeo
@@ -334,6 +335,7 @@ func main() {
 	app.allowAnyPath = *allowAnyPath
 	app.checkBatch = *checkBatch
 	app.checkTimeout = time.Duration(*checkTimeoutMs) * time.Millisecond
+	app.upTimeout = time.Duration(*upstreamTimeout) * time.Second // 0 = sin tope
 	app.checkRetries = *checkRetries
 	app.checkAll = *checkAll
 	app.checkConnect = *checkConnect

@@ -480,40 +480,54 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 			scheme = strings.ToLower(strings.TrimSpace(r.URL.Query().Get("proto")))
 		}
 		aliveOnly := r.URL.Query().Get("alive") == "1"
+		// Politica "solo vivo y filtrado" (README): ?alive=1 NUNCA entrega un
+		// proxy sin verificar. El modo optimista historico (servir tu propia
+		// lista recien cargada antes del primer chequeo) hay que pedirlo:
+		//   /proxy.txt?alive=1&include_unchecked=1
+		// Sin esto, tras un arranque limpio OB recibia 12k+ proxies sin
+		// validar, justo lo que la politica dice evitar (auditoria 17/10/2026).
+		includeUnchecked := r.URL.Query().Get("include_unchecked") == "1"
 		maxPing := 0
 		if mp := r.URL.Query().Get("max_ping"); mp != "" {
 			maxPing, _ = strconv.Atoi(mp)
 		}
-		country := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("country")))
 		// Acepta varios paises ("BR,US,brasil") y nombres en ingles/espanol.
 		countries := parseCountries(r.URL.Query().Get("country"))
 
-		list := a.AliveList()
-		if len(list) == 0 && !aliveOnly {
-			a.mu.Lock()
-			list = append([]*Proxy(nil), a.proxies...)
-			a.mu.Unlock()
+		// Filtrado con a.mu TOMADO: Alive/Checked/PingMs/Country los escribe el
+		// health-check en caliente; leerlos sin lock era una carrera real
+		// (benigna hasta hoy, pero real) que el filtro estricto de 'checked'
+		// habria ampliado. La serializacion de abajo solo toca campos
+		// inmutables tras publicar el proxy (Scheme/Host/Port/User/Password),
+		// asi que sigue fuera del lock (una lista de 130k no bloquea la
+		// rotacion).
+		a.mu.Lock()
+		a.refreshIdxLocked()
+		src := a.aliveIdx
+		if len(src) == 0 && !aliveOnly {
+			src = a.proxies
 		}
-		if scheme != "" || maxPing > 0 || country != "" {
-			filtrada := make([]*Proxy, 0, len(list))
-			for _, p := range list {
-				if scheme != "" && p.Scheme != scheme {
-					continue
-				}
-				if maxPing > 0 && (p.PingMs <= 0 || p.PingMs > maxPing) {
-					continue
-				}
-				if len(countries) > 0 && !proxyCountryMatch(p, countries) {
-					continue
-				}
-				filtrada = append(filtrada, p)
+		list := make([]*Proxy, 0, len(src))
+		for _, p := range src {
+			if aliveOnly && !includeUnchecked && !p.Checked {
+				continue
 			}
-			list = filtrada
+			// protoMatch: "socks4" incluye "socks4a", igual que el checker y
+			// que el export OB (OB no distingue 4a). "socks4a" sigue exacto.
+			if scheme != "" && !protoMatch(p.Scheme, scheme) {
+				continue
+			}
+			if maxPing > 0 && (p.PingMs <= 0 || p.PingMs > maxPing) {
+				continue
+			}
+			if len(countries) > 0 && !proxyCountryMatch(p, countries) {
+				continue
+			}
+			list = append(list, p)
 		}
 		if r.URL.Query().Get("sort") == "ping" {
 			// Exporta el vivo mas rapido primero (estilo xRisky: latencia
 			// por proxy); los sin medir (0) van al final.
-			a.mu.Lock()
 			sort.SliceStable(list, func(i, j int) bool {
 				pi, pj := list[i].PingMs, list[j].PingMs
 				if (pi > 0) != (pj > 0) {
@@ -521,8 +535,8 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 				}
 				return pi < pj
 			})
-			a.mu.Unlock()
 		}
+		a.mu.Unlock()
 		var sb strings.Builder
 		for _, p := range list {
 			switch format {

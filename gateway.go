@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -661,7 +662,34 @@ func (a *App) roundTrip(p *Proxy, method string, u *url.URL, h map[string]string
 	// mismo upstream; el anterior creaba uno nuevo por peticion con
 	// DisableKeepAlives=true -> conexion TCP nueva en cada request.
 	tr := a.transportePara(p)
-	return tr.RoundTrip(req)
+	if a.upTimeout <= 0 {
+		return tr.RoundTrip(req)
+	}
+	// Tope total (cabeceras + cuerpo): ResponseHeaderTimeout solo cubre las
+	// cabeceras, asi que un upstream que responde 200 y luego gotea el cuerpo
+	// retenia la conexion para siempre (auditoria 17/10/2026). El cancel va
+	// atado al cuerpo (no a la vuelta de RoundTrip, que solo espera cabeceras).
+	ctx, cancel := context.WithTimeout(req.Context(), a.upTimeout)
+	resp, err := tr.RoundTrip(req.WithContext(ctx))
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	resp.Body = &cancelBody{ReadCloser: resp.Body, cancel: cancel}
+	return resp, nil
+}
+
+// cancelBody libera el contexto del tope global cuando el cuerpo se cierra
+// (resp.Write y el resto de rutas siempre cierran el body).
+type cancelBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (c *cancelBody) Close() error {
+	err := c.ReadCloser.Close()
+	c.cancel()
+	return err
 }
 
 // jsonOut helper

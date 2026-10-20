@@ -67,6 +67,11 @@ type App struct {
 	authLim      *authLimiter  // rate-limit de fallos de token por IP (fuerza bruta)
 	allowAnyPath bool          // escape de la jaula de rutas de /validate y /import
 	idle         time.Duration // watchdog de inactividad en tuneles (RED-01, 0=off)
+	// upTimeout: tope TOTAL (cabeceras + cuerpo) de una peticion relayada por
+	// la via HTTP. Sin el, un upstream que responde cabeceras y luego gotea
+	// el cuerpo 1 byte/9s retiene la conexion indefinidamente (solo habia
+	// ResponseHeaderTimeout de 10s para las cabeceras). 0 = sin tope.
+	upTimeout time.Duration
 
 	// enfriar: proxies que acaban de fallar en relay (key -> unix sec hasta
 	// el que se apartan de la rotacion). Sin esto, un proxy "vivo" segun el
@@ -149,6 +154,7 @@ func NewApp(files []string, strategy string, quiet bool, checkItv int, testURL s
 		testURL:      testURL,
 		checkTimeout: 5 * time.Second,
 		checkRetries: 1,
+		upTimeout:    120 * time.Second,
 		massBase:     "Resultados",
 		authLim:      newAuthLimiter(),
 	}
