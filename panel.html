@@ -2526,11 +2526,19 @@ async function harvestRemove(url){
 function setTab(el){
   document.querySelectorAll('#tabs .tab').forEach(t => t.classList.remove('on'));
   el.classList.add('on');
-  document.body.dataset.tab = el.dataset.tab;
-  try{ localStorage.setItem('espectro.tab', el.dataset.tab); }catch(e){}
+  const tab = el.dataset.tab;
+  document.body.dataset.tab = tab;
+  try{ localStorage.setItem('espectro.tab', tab); }catch(e){}
+  // Muestra solo las secciones de esa pestana (la de "Panel" las muestra
+  // todas). El display va EN LINEA y con valor explicito ('' lo quitaria y
+  // volveria a aplicar el filtro por atributo del CSS).
+  document.querySelectorAll('.sec').forEach(s => {
+    const t = s.dataset.tab || '';
+    s.style.display = (tab === 'all' || t === tab) ? 'block' : 'none';
+  });
   // lleva al usuario a la seccion de esa pestana (si no, al principio)
-  const first = document.querySelector('.sec[data-tab="' + el.dataset.tab + '"]');
-  if (first && el.dataset.tab !== 'all'){
+  const first = document.querySelector('.sec[data-tab="' + tab + '"]');
+  if (first && tab !== 'all'){
     first.scrollIntoView({behavior:'smooth', block:'start'});
   } else {
     window.scrollTo({top:0, behavior:'smooth'});
