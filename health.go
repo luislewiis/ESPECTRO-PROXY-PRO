@@ -117,7 +117,9 @@ func healthCheckBody(p *Proxy, testURL string, timeout time.Duration, maxBody in
 		}
 
 		// Modo GET (default): compatible hacia atras, valida GET simple.
-		req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n", testURL, u.Host)
+		// Se manda User-Agent de navegador: algunos sitios (y proxies)
+		// responden 402/403 a las peticiones sin UA.
+		req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\nConnection: close\r\n", testURL, u.Host, deepUserAgent)
 		if p.User != "" {
 			req += "Proxy-Authorization: Basic " + basicToken(p.User, p.Password) + "\r\n"
 		}
@@ -148,7 +150,7 @@ func healthCheckBody(p *Proxy, testURL string, timeout time.Duration, maxBody in
 	c.SetDeadline(time.Now().Add(timeout))
 	// Host con el puerto si la URL lo trae (u.Host): sin esto, un test-url
 	// tipo http://ip:8080/ se testeaba contra el puerto 80 del Host header.
-	req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", path, u.Host)
+	req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\nConnection: close\r\n\r\n", path, u.Host, deepUserAgent)
 	if _, err := io.WriteString(c, req); err != nil {
 		return false, 0, ""
 	}

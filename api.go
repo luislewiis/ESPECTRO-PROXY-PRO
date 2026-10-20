@@ -924,6 +924,19 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 		jsonOut(w, map[string]interface{}{"ok": true, "settings": cur})
 	})
 
+	mux.HandleFunc("/remeasure", func(w http.ResponseWriter, r *http.Request) {
+		// Re-medir: invalida la cache de capacidades (TLS 1.3 / HTTP2 / DNS)
+		// y el anonimato medido, para que el siguiente ciclo del health-check
+		// vuelva a medir TODO el pool vivo (por ejemplo, tras cambiar el
+		// juez de anonimato o si el pool ha cambiado mucho).
+		if !a.allowPanel(w, r) {
+			return
+		}
+		n := a.invalidateCaps()
+		a.logf("re-medir: %d proxies quedan por medir en el proximo ciclo", n)
+		jsonOut(w, map[string]interface{}{"ok": true, "pendientes": n})
+	})
+
 	mux.HandleFunc("/check", func(w http.ResponseWriter, r *http.Request) {
 		if !a.allowPanel(w, r) {
 			return

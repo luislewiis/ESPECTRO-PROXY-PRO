@@ -11,7 +11,6 @@ package main
 
 import (
 	"crypto/tls"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -38,11 +37,38 @@ func TestBodyLooksLikeEcho(t *testing.T) {
 	if !bodyLooksLikeEcho("REMOTE_ADDR=1.2.3.4\nHTTP_USER_AGENT=curl") {
 		t.Fatal("un eco de judge debe detectarse")
 	}
+	// Formato JSON (httpbingo.org/headers, httpbin.org/get).
+	if !bodyLooksLikeEcho(`{"headers":{"Host":["httpbingo.org"],"User-Agent":["curl/8"]}}`) {
+		t.Fatal("un eco JSON debe detectarse")
+	}
 	if bodyLooksLikeEcho("38.188.98.1") {
 		t.Fatal("una IP suelta NO es un eco de judge")
 	}
 	if bodyLooksLikeEcho("") {
 		t.Fatal("un cuerpo vacio no es un eco")
+	}
+}
+
+// TestAnonFromBodyJSON: con un juez JSON (httpbingo) la clasificacion debe
+// afinar: nuestra IP en la cadena = Transparent; cadena sin nuestra IP =
+// High; sin cabeceras de proxy = Elite.
+func TestAnonFromBodyJSON(t *testing.T) {
+	a := NewApp(nil, "round-robin", true, 0, "")
+
+	conCadena := `{"headers":{"Host":["httpbingo.org"],"Via":["1.1 fly.io"],` +
+		`"X-Forwarded-For":["72.207.109.5, 66.241.125.232"]}}`
+	if got := a.anonFromBody("socks5", conCadena, "38.188.98.1"); got != "High" {
+		t.Fatalf("cadena sin nuestra IP = %q, esperaba High", got)
+	}
+
+	conNuestraIP := `{"headers":{"X-Forwarded-For":["38.188.98.1, 66.241.125.232"]}}`
+	if got := a.anonFromBody("socks5", conNuestraIP, "38.188.98.1"); got != "Transparent" {
+		t.Fatalf("nuestra IP en la cadena = %q, esperaba Transparent", got)
+	}
+
+	sinCabeceras := `{"headers":{"Host":["httpbingo.org"],"User-Agent":["curl/8"]}}`
+	if got := a.anonFromBody("socks5", sinCabeceras, "38.188.98.1"); got != "Elite" {
+		t.Fatalf("sin cabeceras de proxy = %q, esperaba Elite", got)
 	}
 }
 
@@ -174,12 +200,11 @@ func TestProbeAnonConEco(t *testing.T) {
 	a := NewApp(nil, "round-robin", true, 0, eco.URL)
 	a.checkTimeout = 3 * time.Second
 	p := &Proxy{Scheme: "http", Host: ph, Port: pp}
-	got := a.probeAnon(p)
+	got, _ := a.probeAnon(p)
 	if got != "Elite" && got != "High" && got != "Transparent" && got != "" {
 		t.Fatalf("nivel de anonimato inesperado: %q", got)
 	}
 	if got == "" {
 		t.Logf("sin nivel medido (el eco no llego); el camino de clasificacion esta en anonFromBody")
 	}
-	fmt.Sprint(got)
 }

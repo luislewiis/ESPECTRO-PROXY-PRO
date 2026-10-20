@@ -137,6 +137,7 @@ type App struct {
 	harvestMax     int    // tope de lineas recolectadas
 	explicitFlags  map[string]bool
 	capsHost       string // host:port para la sonda de TLS 1.3 / HTTP2 ("" = el del test-url)
+	anonURL        string // juez de anonimato (proxy judge) para la clasificacion fina
 	uiMode         string // densidad del panel: "resumen" | "detalle"
 	settingsOff    bool   // --no-settings: no cargar ni guardar settings.json
 

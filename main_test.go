@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"net"
 	"os"
 	"strings"
@@ -10,7 +11,21 @@ import (
 // TestReorderArgs: los flags con valor (--check-batch, --idle-timeout, etc.)
 // consumen su argumento aunque vayan detras de un archivo posicional; sin
 // esto, "ProxyGateway.exe lista.txt --check-batch 1000" moria al parsear.
+//
+// Los flags que toman valor se detectan preguntando al paquete flag, asi que
+// el test usa un FlagSet propio con esos flags definidos.
 func TestReorderArgs(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.String("check-batch", "1000", "")
+	fs.String("idle-timeout", "600", "")
+	fs.String("state-file", "", "")
+	fs.String("check-timeout", "5000", "")
+	fs.String("check-retries", "3", "")
+	fs.Bool("check-now", false, "")
+	fs.Bool("quiet", false, "")
+	fs.Bool("no-state", false, "")
+	fs.Bool("check-all", false, "")
+
 	casos := []struct {
 		nombre string
 		args   []string
@@ -37,7 +52,7 @@ func TestReorderArgs(t *testing.T) {
 	defer func(old []string) { os.Args = old }(os.Args)
 	for _, c := range casos {
 		os.Args = append([]string{"exe"}, c.args...)
-		reorderArgs()
+		reorderArgsWith(fs)
 		got := os.Args[1:]
 		if strings.Join(got, "\x00") != strings.Join(c.want, "\x00") {
 			t.Errorf("%s: got %q, esperaba %q", c.nombre, got, c.want)

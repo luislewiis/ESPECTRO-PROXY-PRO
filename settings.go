@@ -35,6 +35,8 @@ type appSettings struct {
 	SuccessKey string `json:"success_key,omitempty"`
 	// GeoMMDB: base MaxMind offline.
 	GeoMMDB string `json:"geo_mmdb,omitempty"`
+	// AnonURL: juez de anonimato (proxy judge) para la clasificacion fina.
+	AnonURL string `json:"anon_url,omitempty"`
 	// Harvest: Auto-Fuentes on/off.
 	Harvest *bool `json:"harvest,omitempty"`
 	// HarvestInterval: minutos entre pasadas del Auto-Fuentes.
@@ -84,6 +86,7 @@ func (a *App) currentSettings() appSettings {
 		TestURL:         a.testURL,
 		SuccessKey:      a.checkKey,
 		GeoMMDB:         a.geoPath,
+		AnonURL:         a.anonURL,
 		Harvest:         &a.harvestOn,
 		HarvestInterval: &a.harvestItv,
 		CheckKind:       map[bool]string{true: "CONNECT", false: "GET"}[conn],
@@ -123,6 +126,9 @@ func mergeSettings(base, patch appSettings, keys map[string]bool) appSettings {
 	}
 	if keys["geo_mmdb"] {
 		base.GeoMMDB = patch.GeoMMDB
+	}
+	if keys["anon_url"] {
+		base.AnonURL = patch.AnonURL
 	}
 	if keys["harvest"] {
 		base.Harvest = patch.Harvest
@@ -166,6 +172,38 @@ func (a *App) applyAndSave(raw []byte) (appSettings, error) {
 		}
 	}
 	return normSettings(a.currentSettings()), nil
+}
+
+// syncJudgeCache: si el juez de anonimato efectivo ha cambiado respecto al
+// guardado, la cache de capacidades (TLS 1.3 / HTTP2 / DNS) y el anonimato
+// medido quedan obsoletos -> se invalidan para volver a medir en el
+// siguiente ciclo con el juez nuevo. Ademas se persiste el juez vigente.
+func (a *App) syncJudgeCache(prev string) {
+	a.mu.Lock()
+	cur := strings.TrimSpace(a.anonURL)
+	cambia := cur != strings.TrimSpace(prev)
+	if cambia {
+		for _, p := range a.proxies {
+			// CapsKnown=false es lo importante: si solo se resetea la
+			// fecha, el filtro de la sonda ("ya medido y no caducado")
+			// seguiria saltandolo.
+			p.CapsKnown = false
+			p.CapsAt = 0
+			p.Anon = ""
+		}
+	}
+	a.mu.Unlock()
+	if !cambia {
+		return
+	}
+	if !a.settingsOff {
+		if err := a.saveSettings(a.currentSettings()); err != nil {
+			a.logf("no se pudo guardar el juez: %v", err)
+		}
+	}
+	if cur != "" {
+		a.logf("juez de anonimato: %s (se vuelve a medir el pool)", cur)
+	}
 }
 
 // applySettings aplica los ajustes en caliente (lo que llega del panel).
@@ -222,6 +260,19 @@ func (a *App) applySettings(s appSettings) error {
 	}
 	if s.GeoMMDB != "" && !set("geo-mmdb") {
 		a.geoPath = s.GeoMMDB
+	}
+	if s.AnonURL != "" && !set("anon-url") {
+		nuevo := strings.TrimSpace(s.AnonURL)
+		if nuevo != a.anonURL {
+			// Cambia el juez -> la cache de capacidades (y el anonimato)
+			// queda obsoleta: se invalida para volver a medir en el
+			// siguiente ciclo con el juez nuevo.
+			a.anonURL = nuevo
+			for _, p := range a.proxies {
+				p.CapsAt = 0
+				p.Anon = ""
+			}
+		}
 	}
 	if s.Harvest != nil && !set("harvest") {
 		a.harvestOn = *s.Harvest

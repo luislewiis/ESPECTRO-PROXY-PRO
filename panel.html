@@ -629,6 +629,9 @@ td.ping{color:var(--faint);white-space:nowrap}
         <div class="rrow"><span class="k">HTTP/2 (h2)</span><span class="v cy" id="rH2">—</span></div>
         <div class="rrow"><span class="k">DNS remoto</span><span class="v vi" id="rDns">—</span></div>
         <div class="rrow solo-detalle"><span class="k">Medidos</span><span class="v" id="rCaps">—</span></div>
+        <div class="rrow"><span class="k" style="flex:1"></span>
+          <button class="fchip" onclick="api('/remeasure','Cache de capacidades reinvalida; se medira en el proximo ciclo')" data-help="Vuelve a medir TLS 1.3, HTTP/2, DNS y el anonimato de TODO el pool vivo (2 peticiones por proxy). Util cuando cambias el juez de anonimato o el pool ha cambiado mucho." data-help2="El juez externo y el pool de proxies.">↻ Re-medir</button>
+        </div>
       </div>
     </div>
 
@@ -1212,6 +1215,11 @@ td.ping{color:var(--faint);white-space:nowrap}
         <div>
           <label class="fld" style="display:block;margin-bottom:8px">Clave de éxito</label>
           <input type="text" id="cfgKey" style="width:100%" placeholder="title&gt;Google" data-help="Texto que debe aparecer en el cuerpo de la respuesta para dar el proxy por válido (validación de contenido real, estilo Proxy Checker). Vacío = solo basta con que responda." data-help2="El sitio de validación remoto.">
+        </div>
+
+        <div>
+          <label class="fld" style="display:block;margin-bottom:8px">Juez de anonimato</label>
+          <input type="text" id="cfgJudge" style="width:100%" placeholder="http://azenv.net/" data-help="Proxy Judge: una URL que devuelve las cabeceras que recibió. Con ella el gateway clasifica el anonimato al detalle (Elite / High / Transparent) en vez de solo comparar IPs. Se usa 1 vez por proxy y día." data-help2="El juez externo y la IP publica de esta maquina.">
         </div>
 
         <div>
@@ -2877,6 +2885,7 @@ async function loadSettings(){
     el('cfgStrategy').value = s.strategy || 'round-robin';
     el('cfgTestURL').value = s.test_url || '';
     el('cfgKey').value = s.success_key || '';
+    el('cfgJudge').value = s.anon_url || '';
     el('cfgHarvest').value = s.harvest ? 'on' : 'off';
     el('cfgHarvestItv').value = s.harvest_interval != null ? s.harvest_interval : 15;
     if (s.mode) setMode(s.mode);
@@ -2892,6 +2901,7 @@ async function saveSettings(partial, quiet){
     strategy: el('cfgStrategy').value,
     test_url: el('cfgTestURL').value.trim(),
     success_key: el('cfgKey').value.trim(),
+    anon_url: el('cfgJudge').value.trim(),
     harvest: el('cfgHarvest').value === 'on',
     harvest_interval: parseInt(el('cfgHarvestItv').value || '15', 10)
   };

@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -78,27 +79,55 @@ func probeTLS(p *Proxy, hostport string, timeout time.Duration) (tls13 bool, h2 
 	return tls13, h2, dnsRemote, dnsMode, nil
 }
 
-// probeAnon: mide el anonimato de un proxy con UNA peticion GET a la URL de
-// validacion (que suele ser un echo de IP). Si el cuerpo trae nuestra IP, el
-// proxy es transparente; si trae otra, oculta nuestra IP (High). Si el
-// destino es un juez (eco de cabeceras), la clasificacion es fina
-// (Elite/High/Transparent). Se hace una vez por proxy y se cachea.
-func (a *App) probeAnon(p *Proxy) string {
+// probeAnon: mide el anonimato de un proxy con UNA peticion GET al JUEZ
+// (un "proxy judge" que devuelve las cabeceras que recibio). Con el juez,
+// el cuerpo trae "HTTP_X = ..." / "REMOTE_ADDR = ..." y se puede clasificar
+// al detalle (Elite / High / Transparent). Sin juez, se usa la URL de
+// validacion y se compara la IP devuelta con la nuestra.
+// El cuerpo se lee completo (4 KB): el eco del juez viene tras el <head> HTML.
+func (a *App) probeAnon(p *Proxy) (string, error) {
 	timeout := a.checkTimeout
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	u := strings.TrimSpace(a.testURL)
+	u := strings.TrimSpace(a.anonURL)
 	if u == "" {
-		return ""
+		u = strings.TrimSpace(a.testURL)
 	}
-	sp := checkSpec{url: u, timeout: timeout, maxBody: 256}
+	if u == "" {
+		return "", nil
+	}
+	sp := checkSpec{url: u, timeout: timeout, maxBody: 4096}
 	ok, _, body, _ := healthCheckSpec(p, sp)
 	if !ok {
-		return ""
+		return "", fmt.Errorf("el proxy no respondio al juez")
 	}
 	real := a.getRealIP()
-	return a.anonFromBody(p.EffScheme(), body, real)
+	lvl := a.anonFromBody(p.EffScheme(), body, real)
+	if lvl == "" {
+		return "", fmt.Errorf("cuerpo no recognizedo como eco (%d bytes)", len(body))
+	}
+	return lvl, nil
+}
+
+// invalidateCaps: marca el pool vivo como "sin medir" para que el proximo
+// ciclo del health-check vuelva a medir TLS 1.3 / HTTP2 / DNS y el anonimato.
+// Devuelve cuantos proxies quedan pendientes.
+func (a *App) invalidateCaps() int {
+	a.mu.Lock()
+	n := 0
+	for _, p := range a.proxies {
+		if p.Alive {
+			p.CapsKnown = false
+			p.CapsAt = 0
+			p.Anon = ""
+			n++
+		}
+	}
+	a.aliveDirty = true
+	a.mu.Unlock()
+	a.scheduleStateSave()
+	return n
 }
 
 // capsHostFor: el host que se usa para la sonda TLS. Si el test-url es
@@ -166,6 +195,7 @@ func (a *App) probeCapsPool(maxPerCycle int) {
 
 	sem := make(chan struct{}, 8)
 	var wg sync.WaitGroup
+	var nAnonErr atomic.Int64
 	for _, p := range targets {
 		if maxPerCycle <= 0 {
 			break
@@ -181,11 +211,12 @@ func (a *App) probeCapsPool(maxPerCycle int) {
 			// asi tambien se mide en modo CONNECT, donde el health-check
 			// no lee cuerpo.
 			anon := ""
+			var anonErr error
 			a.mu.Lock()
-			needAnon := p.Anon == ""
+			needAnon := p.Anon == "" || a.anonURL != ""
 			a.mu.Unlock()
 			if needAnon {
-				anon = a.probeAnon(p)
+				anon, anonErr = a.probeAnon(p)
 			}
 			a.mu.Lock()
 			p.CapsKnown = true
@@ -205,6 +236,9 @@ func (a *App) probeCapsPool(maxPerCycle int) {
 			}
 			a.aliveDirty = true
 			a.mu.Unlock()
+			if anonErr != nil && nAnonErr.Add(1) <= 5 {
+				a.logf("sonda de anonimato: %s (%v)", p.Tag(), anonErr)
+			}
 		}(p)
 	}
 	wg.Wait()
@@ -215,36 +249,42 @@ func (a *App) probeCapsPool(maxPerCycle int) {
 // capacidad de un proxy no cambia cada hora).
 const capsMaxAge = 24 * 3600
 
-// anonLevelFor: nivel de anonymity fino usando la cuerpo del juez Y nuestra
-// IP real. Mejora sobre anonLevel (que es conservadora: cualquier cabecera de
-// reenvio la daba por "Transparent"):
-//   - si nuestra IP aparece en la cadena de reenvio -> Transparent (nos
-//     ven),
-//   - si hay cadena pero nuestra IP NO esta -> High (el proxy se ve, pero
-//     nuestra IP no),
-//   - si no hay cabeceras de proxy -> Elite.
+// anonLevelFor: nivel de anonimato fino usando el cuerpo del juez Y nuestra
+// IP real. Funciona con los dos formatos de juez:
+//   - azenv.net (clasico): "HTTP_X_FORWARDED_FOR = 1.2.3.4"
+//   - httpbingo/httpbin (JSON): {"headers":{"X-Forwarded-For":["1.2.3.4"]}}
 //
-// Si no hay juez (eco), el nivel Unknown en http y Elite en socks.
+// Regla:
+//   - nuestra IP aparece en el cuerpo -> Transparent (nos ven),
+//   - hay cadena de reenvio pero no nuestra IP -> High (el proxy se ve,
+//     nuestra IP no),
+//   - no hay cabeceras de proxy -> Elite.
 func anonLevelFor(scheme, body, realIP string) string {
 	if realIP != "" && strings.Contains(body, realIP) {
 		return "Transparent"
 	}
-	up := strings.ToUpper(body)
-	espejo := strings.Contains(up, "REQUEST_METHOD") || strings.Contains(up, "HTTP_") ||
-		strings.Contains(up, "REMOTE_ADDR")
-	if espejo {
-		ipExpuesta := strings.Contains(up, "HTTP_X_FORWARDED_FOR") ||
-			strings.Contains(up, "HTTP_CLIENT_IP") || strings.Contains(up, "HTTP_X_REAL_IP") ||
-			strings.Contains(up, "HTTP_FORWARDED_FOR") || strings.Contains(up, "HTTP_X_CLIENT_IP")
-		if ipExpuesta {
-			return "High"
+	low := strings.ToLower(body)
+	tiene := func(names ...string) bool {
+		for _, n := range names {
+			if strings.Contains(low, n) {
+				return true
+			}
 		}
-		proxyVisible := strings.Contains(up, "HTTP_VIA") || strings.Contains(up, "PROXY_CONNECTION") ||
-			strings.Contains(up, "HTTP_FORWARDED") || strings.Contains(up, "HTTP_X_PROXY_ID") ||
-			strings.Contains(up, "HTTP_PROXY_AUTHORIZATION") || strings.Contains(up, "HTTP_X_FORWARDED")
-		if proxyVisible {
-			return "High"
-		}
+		return false
+	}
+	exponeIP := tiene("x-forwarded-for", "x_forwarded_for", "x-real-ip", "x_real_ip",
+		"client-ip", "client_ip", "forwarded-for", "forwarded_for")
+	if exponeIP {
+		return "High"
+	}
+	proxyVisible := tiene("\"via\"", "http_via", "proxy-connection", "proxy_connection",
+		"x-proxy-id", "proxy-authorization", "\"forwarded\"")
+	if proxyVisible {
+		return "High"
+	}
+	// sin eco de juez: un SOCKS no anade cabeceras HTTP -> Elite; un HTTP
+	// puede estar devolviendo una pagina cacheada/suplantada.
+	if bodyLooksLikeEcho(body) {
 		return "Elite"
 	}
 	if scheme == "http" {
@@ -254,12 +294,18 @@ func anonLevelFor(scheme, body, realIP string) string {
 }
 
 // bodyLooksLikeEcho: el cuerpo de la respuesta parece un eco de las
-// cabeceras de la peticion (lo que devuelve un juez tipo httpbin/azenv).
-// Si es asi, se puede clasificar el anonimato al detalle (Elite/High/
-// Transparent) sin pedir nada mas.
+// cabeceras de la peticion (juez tipo azenv.net, httpbingo.org/headers o
+// httpbin.org/get). Si es asi, se puede clasificar el anonimato al detalle
+// (Elite/High/Transparent) sin pedir nada mas.
 func bodyLooksLikeEcho(body string) bool {
 	up := strings.ToUpper(body)
-	return strings.Contains(up, "REQUEST_METHOD") ||
+	if strings.Contains(up, "REQUEST_METHOD") ||
 		strings.Contains(up, "HTTP_") ||
-		strings.Contains(up, "REMOTE_ADDR")
+		strings.Contains(up, "REMOTE_ADDR") {
+		return true
+	}
+	// formato JSON: {"headers": {...}}
+	low := strings.ToLower(body)
+	return strings.Contains(low, "\"headers\"") && (strings.Contains(low, "\"user-agent\"") ||
+		strings.Contains(low, "\"host\"") || strings.Contains(low, "\"via\""))
 }

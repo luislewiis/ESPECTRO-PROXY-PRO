@@ -136,14 +136,17 @@ func usageYSal() {
 
 // reorderArgs mueve los flags delante de los archivos posicionales para que
 // el paquete flag de Go los procese (acepta: ProxyGateway.exe lista.txt --http-port 9090)
+//
+// Los flags que TOMAN VALOR se detectan preguntando al propio paquete flag
+// (no una lista escrita a mano: esa lista se quedaba obsoleta y un flag
+// nuevo se comia el archivo siguiente como si fuera su valor).
 func reorderArgs() {
-	valueFlags := map[string]bool{
-		"bind": true, "http-port": true, "api-port": true, "strategy": true,
-		"check-interval": true, "check-batch": true, "test-url": true,
-		"api-token": true, "idle-timeout": true, "state-file": true,
-		"check-timeout": true, "check-retries": true,
-		"harvest-interval": true, "harvest-out": true, "harvest-max-lines": true,
-	}
+	reorderArgsWith(flag.CommandLine)
+}
+
+// reorderArgsWith: lo mismo, pero sobre un FlagSet concreto (para poder
+// probarlo sin tocar el set global).
+func reorderArgsWith(fs *flag.FlagSet) {
 	args := os.Args[1:]
 	var flags, files []string
 	for i := 0; i < len(args); i++ {
@@ -155,7 +158,7 @@ func reorderArgs() {
 		if strings.HasPrefix(a, "-") && a != "-" {
 			flags = append(flags, a)
 			name := strings.TrimLeft(a, "-")
-			if !strings.Contains(a, "=") && valueFlags[name] && i+1 < len(args) {
+			if !strings.Contains(a, "=") && flagTomaValorIn(fs, name) && i+1 < len(args) {
 				i++
 				flags = append(flags, args[i])
 			}
@@ -164,6 +167,17 @@ func reorderArgs() {
 		}
 	}
 	os.Args = append([]string{os.Args[0]}, append(flags, files...)...)
+}
+
+func flagTomaValorIn(fs *flag.FlagSet, name string) bool {
+	f := fs.Lookup(name)
+	if f == nil {
+		return false
+	}
+	if bf, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && bf.IsBoolFlag() {
+		return false
+	}
+	return true
 }
 
 // cambioPuerto describe un puerto que hubo que mover al arrancar porque
@@ -238,7 +252,6 @@ func main() {
 		}
 	}()
 
-	reorderArgs()
 	bind := flag.String("bind", "127.0.0.1", "direccion de escucha")
 	httpPort := flag.String("http-port", "8080", "puerto(s) del gateway proxy: uno (8082) o varios separados por comas (8082,823) para servir el mismo endpoint en varios puertos, como DataImpulse")
 	apiPort := flag.Int("api-port", 8081, "puerto de la API y el panel")
@@ -264,6 +277,7 @@ func main() {
 	geoMMDB := flag.String("geo-mmdb", "", "ruta de una base MaxMind DB de paises (GeoLite2-Country.mmdb / DbipLite-Country.mmdb) para GeoIP offline sin limites de tasa. Vacio = autodetecta en el directorio actual")
 	activateOut := flag.String("activate-out", activateOutDefault, "archivo propio donde el checker guarda los proxies ACTIVADOS por pais (nunca toca proxies.txt ni harvested.txt)")
 	capsHost := flag.String("caps-host", "", "host:puerto para la sonda de capacidad (TLS 1.3 / HTTP2 / DNS remoto) de los proxies vivos. Vacio = el host del --test-url por 443")
+	anonURL := flag.String("anon-url", "http://httpbingo.org/headers", "juez de anonimato (proxy judge) para clasificar Elite/High/Transparent. Vacio = usar el --test-url")
 	checkAll := flag.Bool("check-all", false, "alias de --check-mode full: el auto-check revisa tambien los muertos verificados (default: solo vivos + sin verificar)")
 	checkMode := flag.String("check-mode", "alive", "modo del auto-check: alive (solo vivos + sin verificar, default) | full (chequeo COMPLETO de la lista en cada ciclo)")
 	noCooldown := flag.Bool("no-cooldown", false, "desactiva el enfriamiento de proxies fallados en la rotacion (A/B y diagnostico)")
@@ -278,6 +292,9 @@ func main() {
 	harvestNoCheck := flag.Bool("no-harvest-check", false, "el Auto-Fuentes no valida los recien recolectados (quedan para el health-check normal)")
 	harvestMaxLines := flag.Int("harvest-max-lines", harvestMaxLinesDefault, "tope de lineas del archivo recolectado por el Auto-Fuentes (0 = sin tope)")
 	harvestDefer := flag.Bool("harvest-defer", false, "el Auto-Fuentes no recolecta al arrancar: espera al primer intervalo")
+	// Los flags ya estan definidos: reorderArgs puede preguntarles si
+	// toman valor (y no comerse el archivo siguiente).
+	reorderArgs()
 	flag.Parse()
 
 	if *showVersion {
@@ -400,11 +417,16 @@ func main() {
 	flag.Visit(func(f *flag.Flag) { app.explicitFlags[f.Name] = true })
 	app.geoPath = geoPath
 	app.capsHost = strings.TrimSpace(*capsHost)
+	app.anonURL = strings.TrimSpace(*anonURL)
 	app.harvestOutPath = *harvestOut
 	app.harvestMax = *harvestMaxLines
 	app.harvestItv = *harvestItv
 	app.harvestOn = *harvest
 	app.settingsOff = *noSettings
+	juezPrevio := ""
+	if s, ok := app.loadSettings(); ok {
+		juezPrevio = strings.TrimSpace(s.AnonURL)
+	}
 	if !*noSettings {
 		app.applySettingsFile()
 	}
@@ -423,6 +445,9 @@ func main() {
 	app.loadState()
 	defer app.saveState()
 	app.LoadProxies()
+	// Si el juez de anonimato cambio, se invalida la cache de capacidades
+	// (TLS 1.3 / HTTP2 / DNS) y el anonimato medido: hay que volver a medir.
+	app.syncJudgeCache(juezPrevio)
 	// El snapshot de disco ya cumplio su funcion (fusionar disco -> memoria) y
 	// en pools grandes (200k+ con el Auto-Fuentes) retenerlo cuesta ~100 MB.
 	// Desde aqui manda la memoria; saveState lo reescribe con lo que hay.
