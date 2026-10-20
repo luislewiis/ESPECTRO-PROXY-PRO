@@ -258,12 +258,13 @@ func main() {
 	idleTimeout := flag.Int("idle-timeout", 600, "segundos de inactividad maxima en conexiones (0 = off) - watchdog RED-01")
 	upstreamTimeout := flag.Int("upstream-timeout", 120, "segundos maximos por peticion relayada por la via HTTP (cabeceras + cuerpo); corta upstreams que gotean (0 = sin tope)")
 	checkTimeoutMs := flag.Int("check-timeout", 5000, "timeout en ms por intento de health-check")
-	checkRetries := flag.Int("check-retries", 1, "reintentos extra por proxy antes de darlo por muerto (0 = sin reintentos)")
+	checkRetries := flag.Int("check-retries", 3, "reintentos extra por proxy antes de darlo por muerto (0 = sin reintentos). Cada reintento prueba un PROTOCOLO distinto (socks5 -> socks4 -> http) y el ultimo repite el declarado (golpe de red)")
 	checkConnect := flag.Bool("check-connect", false, "el health-check usa CONNECT (tunel) en vez de GET: detecta proxies que pasan el check pero no tunelizan (502 en CONNECT)")
 	checkKey := flag.String("success-key", "", "texto que debe aparecer en el cuerpo de la respuesta para dar el proxy por valido (validacion de contenido, estilo Proxy Checker). Requiere que --test-url devuelva ese texto")
 	geoMMDB := flag.String("geo-mmdb", "", "ruta de una base MaxMind DB de paises (GeoLite2-Country.mmdb / DbipLite-Country.mmdb) para GeoIP offline sin limites de tasa. Vacio = autodetecta en el directorio actual")
 	activateOut := flag.String("activate-out", activateOutDefault, "archivo propio donde el checker guarda los proxies ACTIVADOS por pais (nunca toca proxies.txt ni harvested.txt)")
-	checkAll := flag.Bool("check-all", false, "el auto-check revisa tambien los muertos verificados (default: solo vivos + sin verificar)")
+	checkAll := flag.Bool("check-all", false, "alias de --check-mode full: el auto-check revisa tambien los muertos verificados (default: solo vivos + sin verificar)")
+	checkMode := flag.String("check-mode", "alive", "modo del auto-check: alive (solo vivos + sin verificar, default) | full (chequeo COMPLETO de la lista en cada ciclo)")
 	noCooldown := flag.Bool("no-cooldown", false, "desactiva el enfriamiento de proxies fallados en la rotacion (A/B y diagnostico)")
 	noState := flag.Bool("no-state", false, "no persistir el estado de analisis (no crea <lista>.state.json)")
 	stateFileFlag := flag.String("state-file", "", "ruta del archivo de estado persistente (default: <lista>.state.json)")
@@ -338,6 +339,16 @@ func main() {
 	app.upTimeout = time.Duration(*upstreamTimeout) * time.Second // 0 = sin tope
 	app.checkRetries = *checkRetries
 	app.checkAll = *checkAll
+	// Modo del auto-check: "alive" (solo vivos + sin verificar) o "full"
+	// (chequeo completo de la lista en cada ciclo). --check-all es el alias
+	// historico de "full".
+	app.checkScope = strings.ToLower(strings.TrimSpace(*checkMode))
+	if app.checkScope != "full" && app.checkScope != "all" {
+		app.checkScope = "alive"
+	}
+	if *checkAll {
+		app.checkScope = "full"
+	}
 	app.checkConnect = *checkConnect
 	app.checkKey = *checkKey
 	// GeoIP offline: base MaxMind DB local (GeoLite2/DbipLite Country). Sin

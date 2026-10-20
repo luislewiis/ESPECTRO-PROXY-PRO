@@ -97,7 +97,8 @@ type App struct {
 	checkRetries int           // reintentos extra antes de marcar muerto (estilo Espectro)
 	checkConnect bool          // --check-connect: valida CONNECT (tunel) en vez de GET
 	checkKey     string        // --success-key: exige este texto en el cuerpo (validacion de contenido)
-	checkAll     bool          // auto-loop revisa tambien muertos (default: solo vivos+sin verificar)
+	checkAll     bool          // --check-all: alias de --check-mode full (auto-loop revisa tambien muertos)
+	checkScope   string        // modo del auto-loop: "alive" (solo vivos+sin verificar) | "all" (chequeo COMPLETO en cada ciclo)
 	// GeoIP offline (geoip.go): base MaxMind DB local (GeoLite2/DbipLite
 	// Country). Si esta, el pais del checker masivo sale de aqui (sin
 	// llamadas al juez ni limites de tasa).
@@ -153,7 +154,8 @@ func NewApp(files []string, strategy string, quiet bool, checkItv int, testURL s
 		checkItv:     checkItv,
 		testURL:      testURL,
 		checkTimeout: 5 * time.Second,
-		checkRetries: 1,
+		checkRetries: 3,
+		checkScope:   "alive",
 		upTimeout:    120 * time.Second,
 		massBase:     "Resultados",
 		authLim:      newAuthLimiter(),
@@ -196,11 +198,12 @@ func (a *App) LoadProxies() int {
 		pingMs    int
 		lastCheck int64
 		country   string
+		alt       string
 	}
 	old := make(map[string]pstate)
 	a.mu.Lock()
 	for _, p := range a.proxies {
-		old[p.Key()] = pstate{p.Alive, p.Fails, p.Checked, p.PingMs, p.LastCheck, p.Country}
+		old[p.Key()] = pstate{p.Alive, p.Fails, p.Checked, p.PingMs, p.LastCheck, p.Country, p.AltScheme}
 	}
 	prev := append([]*Proxy(nil), a.proxies...)
 	disk := a.diskState
@@ -259,6 +262,7 @@ func (a *App) LoadProxies() int {
 				p.PingMs = st.pingMs
 				p.LastCheck = st.lastCheck
 				p.Country = st.country
+				p.AltScheme = st.alt
 			} else if st, ok := disk[p.Key()]; ok {
 				// Sin estado en memoria (reload total / arranque): usar disco.
 				p.Alive = st.Alive
@@ -267,6 +271,7 @@ func (a *App) LoadProxies() int {
 				p.PingMs = st.PingMs
 				p.LastCheck = st.LastCheck
 				p.Country = st.Country
+				p.AltScheme = st.Alt
 			}
 			proxies = append(proxies, p)
 		}

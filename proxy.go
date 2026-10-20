@@ -27,6 +27,23 @@ type Proxy struct {
 	PingMs    int
 	LastCheck int64
 	Country   string // Codigo o nombre de pais (GeoIP / P2.2)
+
+	// AltScheme: protocolo REALmente detectado por el health-check cuando
+	// el declarado no funciona (muchas listas "publicas" rotulan mal el
+	// puerto: un socks5 rotulado como http). El checker lo prueba con la
+	// cascada de protocolos y, si uno responde, lo deja aqui; el trafico
+	// real usa ese esquema (EffScheme) sin tocar el .txt del usuario.
+	AltScheme string
+}
+
+// EffScheme: esquema efectivo para el trafico. Si el health-check detecto
+// que el proxy responde mejor con otro protocolo, ese manda; si no, el
+// declarado por el usuario.
+func (p *Proxy) EffScheme() string {
+	if p.AltScheme != "" {
+		return p.AltScheme
+	}
+	return p.Scheme
 }
 
 var typeMap = map[string]string{

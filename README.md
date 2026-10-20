@@ -13,6 +13,14 @@ go build -ldflags "-s -w" -o ProxyGateway.exe .
 .\ProxyGateway.exe lista.txt --http-port 8080 --api-port 8081
 ```
 
+### Scripts de producción (Windows)
+
+| Script | Qué hace |
+|---|---|
+| `iniciar.cmd` | Doble-click = producción: proxy en **8082 y 823**, panel/API en **8081**, `--check-connect` (validación por túnel, la que necesita OB), health-check cada 60 s. Además ofrece el afinado de TCP si aún no está aplicado (pide admin) |
+| `parar.cmd` | Cierra el gateway por PID (no por nombre) y deja libres 8081/8082/823 |
+| `tunar-tcp.cmd` | Aplica **una vez** el afinado del stack TCP de Windows (64k puertos de usar y tirar + `TIME_WAIT` 30 s). Afecta a todo Windows; hace falta administrador |
+
 Doble-click sin argumentos: busca `proxies.txt` (o `proxy.txt`, `lista.txt`)
 junto al exe, crea plantilla si no existe y abre el panel. En doble-click la
 ventana de consola se **cierra del todo** (FreeConsole) si es exclusiva del
@@ -40,6 +48,8 @@ compartida la consola no se toca y `--console` la mantiene visible.
 | `--no-state` | `false` | No persistir el estado de analisis (no crea `<lista>.state.json`) |
 | `--state-file` | *(auto)* | Ruta del archivo de estado (default: `<lista>.state.json` junto a la primera lista) |
 | `--test-url` | `http://api.ipify.org/` | URL de validación |
+| `--check-retries` | `3` | Reintentos por proxy antes de darlo por muerto. **Cada reintento prueba un protocolo distinto** (socks5 → socks4 → http) y el último repite el declarado (golpe de red / proxy lento, estilo *Proxy Checker by xRisky*) |
+| `--check-mode` | `alive` | Modo del auto-health-check: `alive` (solo vivos + nunca verificados, barato) o `full` (**chequeo completo** de la lista en cada ciclo). `--check-all` es el alias histórico de `full`. Cambiable en caliente desde el panel (`POST /set-check-mode?mode=alive\|full`) |
 | `--success-key` | *(vacío)* | Texto que **debe** aparecer en el cuerpo de la respuesta para dar el proxy por válido (validación de contenido real, estilo Proxy Checker). Ej.: `--test-url https://www.google.com/ --success-key "title>Google"` | 
 | `--geo-mmdb` | *(auto)* | Ruta a una base MaxMind DB de países (`GeoLite2-Country.mmdb` / `DbipLite-Country.mmdb`) para **GeoIP offline** sin límites de tasa. Vacío = autodetecta `*.mmdb` en el directorio actual |
 | `--activate-out` | `activados.txt` | Archivo propio donde el checker guarda los proxies **activados por país** (nunca toca `proxies.txt` ni `harvested.txt`). Se carga al pool desde el arranque si existe |
@@ -172,6 +182,27 @@ Lo recolectado entra al pool como **no vivo y sin verificar**, así que
 `?alive=1&include_unchecked=1`).
 Esto es lo que evita las "pausas": la basura de las listas gratis (≈98% muerta)
 nunca llega a tus bots.
+
+### Chequeo: dos modos y reintentos con rotación de protocolo
+
+Estilo *Proxy Checker by xRisky*, con dos mejoras que el gateway añade:
+
+| Modo | Qué revisa | Cuándo usarlo |
+|---|---|---|
+| `alive` (por defecto) | solo los **vivos** + los **nunca verificados** | en producción: barato, no toca los muertos ya verificados |
+| `full` | **toda** la lista en cada ciclo | cuando quieres el estado real del pool (diagnóstico, "revisar el estado") |
+
+Se elige con `--check-mode alive|full` (o `--check-all`) y se cambia en caliente
+desde el panel (selector **Chequeo**) o con `POST /set-check-mode?mode=full`.
+
+**Reintentos con rotación de protocolo:** cada proxy se prueba hasta 4 veces y
+**cada intento usa un protocolo distinto** (el declarado → socks5 → socks4 →
+http; el último repite el declarado para absorber golpes de red). Motivo: en
+las listas públicas el puerto suele venir **rotulado** (un socks5 etiquetado
+como `http`), y con un solo intento se perdían proxies que sí funcionan. Cuando
+un proxy responde con otro protocolo, el gateway lo **reclasifica**
+(`reclasificado: … responde como socks5`), lo guarda en el estado y a partir de
+ahí **el tráfico real usa el protocolo que funciona** — sin tocar tu `.txt`.
 
 ### Números reales medidos (16/10/2026, esta máquina)
 

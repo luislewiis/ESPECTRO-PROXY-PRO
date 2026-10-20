@@ -40,6 +40,10 @@ type proxyJSON struct {
 	Checked   bool  `json:"checked"`
 	PingMs    int   `json:"ping_ms"`
 	LastCheck int64 `json:"last_check"`
+	// Alt: protocolo REAL detectado (el declarado no respondia).
+	Alt string `json:"alt,omitempty"`
+	// Effective: esquema con el que realmente se usa el proxy.
+	Effective string `json:"effective,omitempty"`
 }
 
 type statsJSON struct {
@@ -59,6 +63,13 @@ type statsJSON struct {
 	StateFile string   `json:"state_file"` // base del archivo de estado ("" = off)
 	Version   string   `json:"version"`    // inyectada por ldflags en release
 	Lic       string   `json:"lic"`        // "Pro — ACME, perpetua" | "Demo (checker hasta 2000...)"
+	// Modo del auto-check: "alive" (solo vivos + sin verificar) | "full"
+	// (chequeo completo de la lista en cada ciclo).
+	CheckMode string `json:"check_mode"`
+	// Reintentos por proxy (cada uno con un protocolo distinto).
+	CheckRetries int `json:"check_retries"`
+	// Modo de validacion: "GET" o "CONNECT" (tunel, el que necesita OB).
+	CheckMode2 string `json:"check_kind"`
 }
 
 func (a *App) statsSnapshot() statsJSON {
@@ -80,23 +91,37 @@ func (a *App) statsSnapshot() statsJSON {
 		stateFile = filepath.Base(p)
 	}
 	return statsJSON{
-		Requests:  a.stats.Requests.Load(),
-		Errors:    a.stats.Errors.Load(),
-		BytesUp:   a.stats.BytesUp.Load(),
-		BytesDown: a.stats.BytesDown.Load(),
-		Alive:     alive,
-		Dead:      total - alive,
-		Unchecked: unchecked,
-		Total:     total,
-		Sessions:  sessions,
-		Strategy:  strategy,
-		Files:     files,
-		Gateway:   gateway,
-		CheckItv:  a.checkItv,
-		StateFile: stateFile,
-		Version:   version,
-		Lic:       licDesc(),
+		Requests:     a.stats.Requests.Load(),
+		Errors:       a.stats.Errors.Load(),
+		BytesUp:      a.stats.BytesUp.Load(),
+		BytesDown:    a.stats.BytesDown.Load(),
+		Alive:        alive,
+		Dead:         total - alive,
+		Unchecked:    unchecked,
+		Total:        total,
+		Sessions:     sessions,
+		Strategy:     strategy,
+		Files:        files,
+		Gateway:      gateway,
+		CheckItv:     a.checkItv,
+		StateFile:    stateFile,
+		Version:      version,
+		Lic:          licDesc(),
+		CheckMode:    a.checkScopeName(),
+		CheckRetries: a.checkRetries,
+		CheckMode2:   map[bool]string{true: "CONNECT", false: "GET"}[a.checkConnect],
 	}
+}
+
+// checkScopeName: modo efectivo del auto-check ("alive" | "full").
+func (a *App) checkScopeName() string {
+	if a.checkAll {
+		return "full"
+	}
+	if a.checkScope == "full" || a.checkScope == "all" {
+		return "full"
+	}
+	return "alive"
 }
 
 func (a *App) proxiesSnapshot() []proxyJSON {
@@ -109,6 +134,7 @@ func (a *App) proxiesSnapshot() []proxyJSON {
 			Alive: p.Alive, Fails: p.Fails, Tag: p.Tag(),
 			Key:     p.Key(),
 			Checked: p.Checked, PingMs: p.PingMs, LastCheck: p.LastCheck,
+			Alt: p.AltScheme, Effective: p.EffScheme(),
 		})
 	}
 	return out
@@ -693,6 +719,29 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 		a.mu.Unlock()
 		a.logf("estrategia cambiada a %s", s)
 		jsonOut(w, map[string]interface{}{"ok": true, "strategy": s})
+	})
+
+	mux.HandleFunc("/set-check-mode", func(w http.ResponseWriter, r *http.Request) {
+		// Modo del auto-check (se elige desde el panel):
+		//   alive -> solo vivos + sin verificar (barato, por defecto)
+		//   full  -> chequeo COMPLETO de la lista en cada ciclo
+		if !a.allowPanel(w, r) {
+			return
+		}
+		mode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("mode")))
+		if mode != "alive" && mode != "full" && mode != "all" {
+			http.Error(w, "modo invalido (alive|full)", http.StatusBadRequest)
+			return
+		}
+		if mode == "all" {
+			mode = "full"
+		}
+		a.mu.Lock()
+		a.checkScope = mode
+		a.checkAll = mode == "full"
+		a.mu.Unlock()
+		a.logf("modo de health-check: %s", mode)
+		jsonOut(w, map[string]interface{}{"ok": true, "check_mode": mode})
 	})
 
 	mux.HandleFunc("/check", func(w http.ResponseWriter, r *http.Request) {

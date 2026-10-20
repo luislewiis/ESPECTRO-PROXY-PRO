@@ -46,7 +46,7 @@ func (a *App) transportePara(p *Proxy) *http.Transport {
 		DisableCompression:    true, // trafico de checker: sin gzip = menos CPU
 		ForceAttemptHTTP2:     false,
 	}}
-	if p.Scheme == "http" {
+	if p.EffScheme() == "http" {
 		pu := &url.URL{Scheme: "http", Host: p.Addr()}
 		if p.User != "" {
 			pu.User = url.UserPassword(p.User, p.Password)

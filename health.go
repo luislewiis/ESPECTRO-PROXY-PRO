@@ -31,6 +31,29 @@ func healthCheckFull(p *Proxy, testURL string, timeout time.Duration, checkConne
 	return ok, ping
 }
 
+// schemeCascade devuelve el orden de protocolos a probar para un proxy:
+// el declarado primero y despues los otros dos (socks5 -> socks4 -> http,
+// el mismo criterio que el checker masivo). Motivo: en las listas publicas
+// el puerto suele venir ROTULADO (un socks5 etiquetado como http, etc.), y
+// probar la cascada completa recupera proxies que se perdian. El
+// health-check usa esta cascada en los reintentos: cada reintento prueba un
+// protocolo distinto.
+func schemeCascade(own string) []string {
+	own = strings.ToLower(strings.TrimSpace(own))
+	base := []string{"socks5", "socks4", "http"}
+	out := make([]string, 0, len(base))
+	if own != "" {
+		out = append(out, own)
+	}
+	for _, s := range base {
+		if s == own {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
 // healthCheckBody es healthCheckFull con lectura opcional de cuerpo:
 // maxBody > 0 consume headers y devuelve hasta maxBody bytes del body
 // (el checker masivo los usa para extraer GeoIP/anonimato del juez).
@@ -54,7 +77,7 @@ func healthCheckBody(p *Proxy, testURL string, timeout time.Duration, maxBody in
 		path = "/"
 	}
 
-	if p.Scheme == "http" {
+	if p.EffScheme() == "http" {
 		c, err := dialRaw(p.Addr(), timeout)
 		if err != nil {
 			return false, 0, ""
@@ -187,7 +210,7 @@ func deepCheck(p *Proxy, sp checkSpec) (bool, int, string, int) {
 		// exigir una cadena valida descartaria proxies usables.
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
-	if p.Scheme == "http" {
+	if p.EffScheme() == "http" {
 		pu := &url.URL{Scheme: "http", Host: p.Addr()}
 		if p.User != "" {
 			pu.User = url.UserPassword(p.User, p.Password)
@@ -300,6 +323,33 @@ func healthCheck(p *Proxy, testURL string) bool {
 	return ok
 }
 
+// checkWithProtocolRotation prueba un proxy con la CASCADA de protocolos:
+// el primer intento usa el esquema declarado y cada reintento prueba otro
+// distinto (socks5 -> socks4 -> http). Cuando se agotan los protocolos
+// distintos, el ultimo reintento repite el declarado (golpe de red / proxy
+// lento, al estilo de "Proxy Checker by xRisky", que reintenta 3 veces).
+// Devuelve si respondio, su ping y el esquema con el que respondio.
+func checkWithProtocolRotation(p *Proxy, sp checkSpec, retries int) (bool, int, string) {
+	if retries < 0 {
+		retries = 0
+	}
+	casc := schemeCascade(p.Scheme)
+	for attempt := 0; attempt <= retries; attempt++ {
+		sch := p.Scheme
+		if attempt < len(casc) {
+			sch = casc[attempt]
+		}
+		trial := *p
+		trial.Scheme = sch
+		trial.AltScheme = ""
+		ok, ping, _, _ := healthCheckSpec(&trial, sp)
+		if ok {
+			return true, ping, sch
+		}
+	}
+	return false, 0, p.Scheme
+}
+
 // RunChecks = chequeo completo de TODA la lista (boton "Check ahora",
 // POST /check, --check-now). Los muertos verificados se revisan aqui.
 func (a *App) RunChecks() {
@@ -348,7 +398,13 @@ func (a *App) runChecksScope(scope string) {
 	// "muerto:"/"revivido:" congelaba la consola; se loguean las primeras
 	// maxDetalle transiciones y luego solo el resumen.
 	const maxDetalle = 5
-	var nMuertos, nRev atomic.Int32
+	var nMuertos, nRev, nReclas atomic.Int32
+	sp := checkSpec{
+		url:        a.testURL,
+		timeout:    timeout,
+		connect:    a.checkConnect,
+		successKey: a.checkKey,
+	}
 	sem := make(chan struct{}, 64)
 	var wg sync.WaitGroup
 	for _, p := range checkPs {
@@ -357,21 +413,14 @@ func (a *App) runChecksScope(scope string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			// Reintentos estilo Espectro: un intento extra antes de dar por
-			// muerto (golpes de red no mueren proxies sanos).
-			ok, ping := false, 0
-			sp := checkSpec{
-				url:        a.testURL,
-				timeout:    timeout,
-				connect:    a.checkConnect,
-				successKey: a.checkKey,
-			}
-			for attempt := 0; attempt <= retries; attempt++ {
-				ok, ping, _, _ = healthCheckSpec(p, sp)
-				if ok {
-					break
-				}
-			}
+			// Reintentos estilo xRisky con ROTACION DE PROTOCOLO: el primer
+			// intento usa el esquema declarado y cada reintento prueba otro
+			// protocolo distinto (socks5 -> socks4 -> http). Motivo: en las
+			// listas publicas el puerto suele venir rotulado, y un proxy
+			// "http" que en realidad es socks5 se pierde con un solo intento.
+			// Si uno de los protocolos responde, se recuerda en AltScheme y
+			// el trafico real pasa por el (EffScheme) sin tocar el .txt.
+			ok, ping, usedScheme := checkWithProtocolRotation(p, sp, retries)
 			now := time.Now().Unix()
 			a.mu.Lock()
 			p.Checked = true
@@ -379,6 +428,14 @@ func (a *App) runChecksScope(scope string) {
 			p.PingMs = 0
 			if ok {
 				p.PingMs = ping
+				// Protocolo real detectado: si el proxy declaraba otro, se
+				// guarda (persistido en el state) para que el relay lo use.
+				if usedScheme != p.Scheme && p.AltScheme != usedScheme {
+					p.AltScheme = usedScheme
+					if nReclas.Add(1) <= maxDetalle {
+						a.logf("reclasificado: %s responde como %s", p.Tag(), usedScheme)
+					}
+				}
 				switch {
 				case !p.Alive:
 					p.Alive = true
@@ -414,6 +471,12 @@ func (a *App) runChecksScope(scope string) {
 	if n := nRev.Load(); n > maxDetalle {
 		a.logf("health-check: %d proxies mas revividos (detalle omitido)", n-maxDetalle)
 	}
+	if n := nReclas.Load(); n > maxDetalle {
+		a.logf("health-check: %d proxies reclasificados por protocolo (detalle omitido)", n-maxDetalle)
+	}
+	if n := nReclas.Load(); n > 0 {
+		a.logf("health-check: %d proxies responden con otro protocolo (usando el real)", n)
+	}
 	a.scheduleStateSave()
 	alive, total := a.counts()
 	a.logf("health-check: %d/%d vivos (revisados %d)", alive, total, len(checkPs))
@@ -424,10 +487,18 @@ func (a *App) CheckerLoop() {
 		a.logf("health-check desactivado (--check-interval 0)")
 		return
 	}
-	scope := "alive"
+	// Dos modos (--check-mode):
+	//   "alive" -> solo vivos + nunca verificados (barato, por defecto)
+	//   "full"  -> chequeo COMPLETO de la lista en cada ciclo (mas caro,
+	//              pero es el que "revisa el estado" de todo, estilo xRisky)
+	scope := a.checkScope
+	if scope == "" {
+		scope = "alive"
+	}
 	if a.checkAll {
 		scope = "all"
 	}
+	a.logf("health-check: modo %s (reintentos %d, %s)", scope, a.checkRetries, map[bool]string{true: "CONNECT", false: "GET"}[a.checkConnect])
 	for {
 		// el primer check se DIFIERE hasta el intervalo: chequear la lista
 		// completa al arrancar saturaba CPU/red y ralentizaba todo el equipo

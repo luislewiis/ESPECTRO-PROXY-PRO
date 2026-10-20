@@ -35,8 +35,11 @@ func dialRaw(addr string, timeout time.Duration) (net.Conn, error) {
 
 // dialThrough conecta al target A TRAVES del upstream p.
 // Devuelve la conexion y un bufio.Reader (por si el handshake HTTP dejo bytes en buffer).
+// Usa el esquema EFECTIVO (EffScheme): si el health-check detecto que el puerto
+// responde con otro protocolo (p.ej. socks5 rotulado como http), el trafico
+// real va por el que funciona.
 func dialThrough(p *Proxy, target string, timeout time.Duration) (net.Conn, *bufio.Reader, error) {
-	switch p.Scheme {
+	switch p.EffScheme() {
 	case "http":
 		return httpConnect(p, target, timeout)
 	case "socks5":
@@ -64,7 +67,7 @@ func dialThrough(p *Proxy, target string, timeout time.Duration) (net.Conn, *buf
 		c.SetDeadline(time.Time{})
 		return c, bufio.NewReader(c), nil
 	default:
-		return nil, nil, fmt.Errorf("esquema desconocido %s", p.Scheme)
+		return nil, nil, fmt.Errorf("esquema desconocido %s", p.EffScheme())
 	}
 }
 

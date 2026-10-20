@@ -135,6 +135,27 @@
   }
   button.primary:hover{filter:brightness(1.1);color:#fff}
   button.ghost-green:hover{border-color:var(--green);color:var(--green)}
+  /* --- sistema de ayuda '?' --- */
+  .helpq{
+    display:inline-grid;place-items:center;width:15px;height:15px;margin-left:6px;
+    border-radius:50%;border:1px solid rgba(163,113,247,.55);color:#c084fc;
+    background:rgba(163,113,247,.12);font-size:10px;font-weight:700;cursor:help;
+    user-select:none;vertical-align:middle;flex:0 0 auto
+  }
+  .helpq:hover,.helpq:focus{background:rgba(163,113,247,.3);outline:none;color:#fff}
+  .tipwrap{position:relative;display:inline-flex;align-items:center}
+  .tipcard{
+    position:absolute;z-index:90;top:calc(100% + 8px);left:0;width:340px;
+    padding:11px 13px;border-radius:10px;background:#1a1230;
+    border:1px solid rgba(163,113,247,.5);box-shadow:0 14px 40px rgba(0,0,0,.75);
+    font-size:12px;line-height:1.5;color:#d9d2f2;display:none;text-align:left;
+    font-weight:400;white-space:normal
+  }
+  .tipwrap:hover .tipcard,.tipwrap:focus-within .tipcard{display:block}
+  .tipcard b{color:#fff}
+  .tipcard .k{color:#39d0d8;font-weight:600}
+  .tipcard .blk{display:block;margin-top:7px}
+  .tipcard.right{left:auto;right:0}
   .linkbox{
     display:none;margin-top:14px;background:var(--bg2);
     border:1px solid rgba(43,217,124,.5);border-radius:var(--r);padding:14px 16px;
@@ -421,28 +442,38 @@ td.ping{color:var(--faint);white-space:nowrap}
   <div class="toolbar">
     <div class="group">
       <label class="fld">Estrategia
-        <select id="strategy">
+        <select id="strategy" data-help="Decide cómo se reparte el tráfico entre los proxies del pool: round-robin (uno detrás de otro), random, sticky (mismo proxy por sesión) o fastest (el 25% más rápido)." data-help2="El pool de proxies y las sesiones sticky. Aplica a todo el tráfico que sale por el gateway.">
           <option value="round-robin">round-robin</option>
           <option value="random">random</option>
           <option value="sticky">sticky</option>
           <option value="fastest">fastest</option>
         </select>
       </label>
-      <button class="primary" onclick="setStrategy()">Aplicar</button>
+      <button class="primary" onclick="setStrategy()" data-help="Guarda la estrategia elegida y la aplica al instante al gateway en caliente." data-help2="El pool de proxies (rotación real del tráfico).">Aplicar</button>
     </div>
     <div class="sep"></div>
     <div class="group">
-      <button onclick="api('/reload','Listas recargadas')">↻ Recargar listas</button>
-      <button class="ghost-green" onclick="api('/check','Health-check lanzado')">⚕ Check ahora</button>
+      <label class="fld">Chequeo
+        <select id="checkMode" data-help="Dos modos de health-check: 'solo vivos' revisa únicamente los proxies ya validados y los nunca verificados (barato); 'completo' re-revisa TODA la lista en cada ciclo (más caro, pero ves el estado real de todo el pool)." data-help2="El judge externo y el archivo de estado proxies.txt.state.json.">
+          <option value="alive">solo vivos</option>
+          <option value="full">completo</option>
+        </select>
+      </label>
+      <button onclick="api('/reload','Listas recargadas')" data-help="Relee los archivos .txt de proxies y el estado guardado, sin reiniciar el programa." data-help2="Tus listas locales (proxies.txt) y el archivo de estado. No borra nada.">↻ Recargar listas</button>
+      <button class="ghost-green" onclick="api('/check','Health-check lanzado')" data-help="Lanza el chequeo de toda la lista ahora mismo y separa los proxies vivos de los caídos (reintenta 3 veces, cada vez con un protocolo distinto)." data-help2="El judge externo, el pool de proxies y el archivo de estado.">⚕ Check ahora</button>
     </div>
     <div class="spacer"></div>
     <div class="group">
       <label class="fld">Sesión
-        <input type="text" id="sess" placeholder="MI_SESION" size="13">
+        <input type="text" id="sess" placeholder="MI_SESION" size="13"
+          data-help="Nombre de sesión sticky: todo lo que salga con el mismo nombre usa la MISMA IP del pool (como DataImpulse). Añade -country-US para filtrar país o -rotate para forzar IP nueva en cada petición."
+          data-help2="El pool de proxies: decide qué IP sale y si se mantiene fija.">
       </label>
-      <button class="primary" onclick="genLink()">Generar enlace</button>
+      <button class="primary" onclick="genLink()" data-help="Construye una URL de proxy estilo DataImpulse con tu sesión, lista para copiar y pegar." data-help2="OpenBullet M2, SilverBullet, el TLS NEW (uTLS) y cualquier cliente proxy.">Generar enlace</button>
       <button class="primary" onclick="copyOBLine()"
-        title="Copia host:puerto:sesion:clave, listo para pegar en OB M2 / SilverBullet (tipo HTTP)">📋 Línea para OB</button>
+        title="Copia host:puerto:sesion:clave, listo para pegar en OB M2 / SilverBullet (tipo HTTP)"
+        data-help="Copia al portapapeles la línea exacta que pegas en el Proxy Manager de OB M2 o SilverBullet (tipo HTTP)."
+        data-help2="El proxy local 8082/823: el gateway rota, reintenta y mantiene la sesión sticky por ti.">📋 Línea para OB</button>
     </div>
   </div>
 
@@ -858,6 +889,37 @@ function setStrategy(){
   const s = document.getElementById('strategy').value;
   api('/set-strategy?strategy=' + s, 'Estrategia: ' + s);
 }
+function setCheckMode(){
+  const m = document.getElementById('checkMode').value;
+  api('/set-check-mode?mode=' + m, 'Chequeo: ' + (m === 'full' ? 'completo' : 'solo vivos'));
+}
+
+// ================= SISTEMA DE AYUDA '?' =================
+// Cada control con data-help recibe un chip '?' con una tarjeta que explica
+// QUE HACE y con QUE SE CONECTA. Se aplica solo (no hay que tocar cada
+// control a mano) y funciona con raton y con teclado (Tab).
+function initHelp(){
+  document.querySelectorAll('[data-help]').forEach(el => {
+    if (el.dataset.helpDone) return;
+    el.dataset.helpDone = '1';
+    const wrap = document.createElement('span');
+    wrap.className = 'tipwrap';
+    const q = document.createElement('span');
+    q.className = 'helpq';
+    q.textContent = '?';
+    q.setAttribute('tabindex', '0');
+    q.setAttribute('aria-label', 'Ayuda');
+    const card = document.createElement('span');
+    card.className = 'tipcard';
+    card.innerHTML = '<b>QUÉ HACE:</b> ' + el.dataset.help +
+      (el.dataset.help2 ? '<span class="blk"><b>SE CONECTA CON:</b> <span class="k">' + el.dataset.help2 + '</span></span>' : '');
+    const parent = el.parentNode;
+    parent.insertBefore(wrap, el);
+    wrap.appendChild(el);
+    wrap.appendChild(q);
+    wrap.appendChild(card);
+  });
+}
 function setFilter(btn){
   document.querySelectorAll('.fchip[data-f]').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
@@ -1065,6 +1127,7 @@ async function refresh(){
       st.alive > 0 ? st.alive + ' vivos' + (st.unchecked ? ' (' + st.unchecked + ' sin verificar)' : '') : 'todos caídos';
     document.getElementById('stratPill').textContent = 'estrategia: ' + st.strategy;
     document.getElementById('strategy').value = st.strategy;
+    if (st.check_mode) document.getElementById('checkMode').value = st.check_mode;
 
     document.getElementById('cAlive').textContent = st.alive + '/' + st.total;
     document.getElementById('hbar').style.width =
@@ -2100,6 +2163,7 @@ setInterval(refresh, 4000);
 setInterval(refreshProxies, 15000);
 setInterval(harvestRefresh, 7000);
 harvestRefresh();
+initHelp();
 </script>
 </body>
 </html>
