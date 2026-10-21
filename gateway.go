@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -34,6 +35,10 @@ type countingWriter struct {
 	w  io.Writer
 	up bool
 	st *Stats
+	// mov: opcional. Cuenta los bytes transferidos para el watchdog de
+	// "tunel vivo" (si en X segundos no se movio un byte en ningun
+	// sentido, el proxy esta zombi y se corta).
+	mov *atomic.Int64
 }
 
 func (c *countingWriter) Write(p []byte) (int, error) {
@@ -43,6 +48,9 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 			c.st.BytesUp.Add(int64(n))
 		} else {
 			c.st.BytesDown.Add(int64(n))
+		}
+		if c.mov != nil {
+			c.mov.Add(int64(n))
 		}
 	}
 	return n, err
@@ -399,10 +407,48 @@ func (a *App) handleConnect(client net.Conn, clientBr *bufio.Reader, target stri
 			up.Close()
 			return
 		}
+		// Watchdog de "tunel vivo" (auditoria 21/10/2026): hay proxies
+		// "zombi" que aceptan el CONNECT y luego no transportan. El bot (o el
+		// motor uTLS) se queda colgado hasta el watchdog de inactividad
+		// (600 s). Se cierran tres casos:
+		//   1) no se movio NINGUN byte en 8 s  -> el proxy esta muerto.
+		//   2) el cliente hablo pero el destino NO respondio en 12 s -> el
+		//      tunel no transporta (el caso tipico del proxy zombi).
+		// En ambos casos se corta el tunel y el proxy se marca como fallido
+		// para que el siguiente CONNECT use otro.
+		var subidos, bajados atomic.Int64
+		finWatch := make(chan struct{})
+		go func() {
+			t8 := time.NewTimer(8 * time.Second)
+			t12 := time.NewTimer(12 * time.Second)
+			defer t8.Stop()
+			defer t12.Stop()
+			for {
+				select {
+				case <-finWatch:
+					return
+				case <-t8.C:
+					if subidos.Load() == 0 && bajados.Load() == 0 {
+						a.tunelMuerto(p, target, "no se movio ningun byte")
+						client.Close()
+						up.Close()
+						return
+					}
+				case <-t12.C:
+					if bajados.Load() == 0 {
+						a.tunelMuerto(p, target, "el destino no respondio")
+						client.Close()
+						up.Close()
+						return
+					}
+				}
+			}
+		}()
 		if !a.quiet {
 			a.logf("CONNECT %s via %s", target, p.Tag())
 		}
-		a.tunnel(client, clientBr, up, upBr)
+		a.tunnel(client, clientBr, up, upBr, &subidos, &bajados)
+		close(finWatch)
 		return
 	}
 	a.stats.Errors.Add(1)
@@ -453,13 +499,24 @@ func (a *App) respondeAuto(client net.Conn, method string, puerto string) {
 	a.logf("auto-check: respondido 200 a %s (checker de proxy en el puerto %s)", method, puerto)
 }
 
+// tunelMuerto: marca el proxy como fallido y avisa (el tunel se corta).
+func (a *App) tunelMuerto(p *Proxy, target, motivo string) {
+	a.markFail(p)
+	a.logf("tunel roto via %s (CONNECT %s): %s", p.Tag(), target, motivo)
+}
+
+// connectFirstByte: segundos que se espera el primer byte del destino tras
+// un CONNECT. Si no llega, el proxy esta muerto (acepta el CONNECT pero no
+// transporta) y se cambia al siguiente en vez de dejar al bot colgado.
+const connectFirstByte = 15 * time.Second
+
 // tunnelBufPool: buffers de 64 KB para los tuneles CONNECT. io.Copy usa
 // 32 KB por defecto; con 64 KB se reducen los syscalls a la mitad en
 // transferencias largas (descargas por el proxy), sin mantener memoria
 // residente (el buffer se devuelve al pool al terminar la copia).
 var tunnelBufPool = sync.Pool{New: func() any { b := make([]byte, 64<<10); return &b }}
 
-func (a *App) tunnel(client net.Conn, clientBr *bufio.Reader, up net.Conn, upBr *bufio.Reader) {
+func (a *App) tunnel(client net.Conn, clientBr *bufio.Reader, up net.Conn, upBr *bufio.Reader, subidos, bajados *atomic.Int64) {
 	defer client.Close()
 	defer up.Close()
 	// watchdog de inactividad (RED-01): cierra tuneles muertos sin matar
@@ -496,7 +553,7 @@ func (a *App) tunnel(client net.Conn, clientBr *bufio.Reader, up net.Conn, upBr 
 			done1 <- nil
 			return
 		}
-		_, err := io.CopyBuffer(&countingWriter{w: updst, up: true, st: &a.stats}, csrc, *bp)
+		_, err := io.CopyBuffer(&countingWriter{w: updst, up: true, st: &a.stats, mov: subidos}, csrc, *bp)
 		tunnelBufPool.Put(bp)
 		if cw, ok := up.(interface{ CloseWrite() error }); ok {
 			cw.CloseWrite()
@@ -509,7 +566,7 @@ func (a *App) tunnel(client net.Conn, clientBr *bufio.Reader, up net.Conn, upBr 
 			done2 <- nil
 			return
 		}
-		_, err := io.CopyBuffer(&countingWriter{w: cdst, st: &a.stats}, upsrc, *bp)
+		_, err := io.CopyBuffer(&countingWriter{w: cdst, st: &a.stats, mov: bajados}, upsrc, *bp)
 		tunnelBufPool.Put(bp)
 		if cw, ok := client.(interface{ CloseWrite() error }); ok {
 			cw.CloseWrite()
@@ -581,6 +638,19 @@ func (a *App) handlePlain(client net.Conn, br *bufio.Reader, method, target stri
 		}
 	}
 	delete(h, "x-proxy-rotate")
+	// Modo uTLS: si hay motor TLS externo configurado, la peticion se delega
+	// en el (huella TLS de navegador) y el motor sale por NUESTRO pool. Solo
+	// aplica a la via HTTP en forma absoluta: el CONNECT (https) lo hace
+	// el propio cliente y no se puede delegar sin terminar su TLS aqui.
+	if a.tlsEngineURL != "" {
+		a.tlsEngineSessions++
+		if a.handleViaEngine(client, method, u, h, body, session, country, rotate) {
+			return
+		}
+		// El motor fallo (timeout, sin pool que tunelice 443, motor parado):
+		// se sigue por el relay normal para no dejar al bot sin respuesta.
+		a.logf("motor uTLS no pudo servir la peticion; se reintenta por el pool")
+	}
 	exclude := make(map[*Proxy]bool)
 	var lastErr error
 	maxRetries := 4

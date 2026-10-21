@@ -277,6 +277,11 @@ func main() {
 	geoMMDB := flag.String("geo-mmdb", "", "ruta de una base MaxMind DB de paises (GeoLite2-Country.mmdb / DbipLite-Country.mmdb) para GeoIP offline sin limites de tasa. Vacio = autodetecta en el directorio actual")
 	activateOut := flag.String("activate-out", activateOutDefault, "archivo propio donde el checker guarda los proxies ACTIVADOS por pais (nunca toca proxies.txt ni harvested.txt)")
 	capsHost := flag.String("caps-host", "", "host:puerto para la sonda de capacidad (TLS 1.3 / HTTP2 / DNS remoto) de los proxies vivos. Vacio = el host del --test-url por 443")
+	tlsEngine := flag.String("tls-engine", "", "URL del motor TLS externo para el modo uTLS (p.ej. http://127.0.0.1:9150, el HVN_TLS_Engine del TLS_v13_MASTER). Vacio = modo uTLS apagado")
+	tlsEngineKey := flag.String("tls-engine-key", "", "token X-HVN-Key del motor TLS externo")
+	tlsEngineProfile := flag.String("tls-engine-profile", "chrome_131", "perfil de huella TLS para el motor externo (chrome_131, firefox_120, safari_ios_18_5, okhttp4_android_13, mms_ios_2...)")
+	tlsEngineTo := flag.Int("tls-engine-timeout", 15, "segundos de espera maxima del motor TLS externo por peticion (si falla, se reintenta por el pool)")
+	tlsUpgrade := flag.Bool("tls-upgrade", true, "modo uTLS: las peticiones http:// se piden al motor como https:// (para que la huella TLS sirva de algo)")
 	anonURL := flag.String("anon-url", "http://httpbingo.org/headers", "juez de anonimato (proxy judge) para clasificar Elite/High/Transparent. Vacio = usar el --test-url")
 	checkAll := flag.Bool("check-all", false, "alias de --check-mode full: el auto-check revisa tambien los muertos verificados (default: solo vivos + sin verificar)")
 	checkMode := flag.String("check-mode", "alive", "modo del auto-check: alive (solo vivos + sin verificar, default) | full (chequeo COMPLETO de la lista en cada ciclo)")
@@ -417,6 +422,17 @@ func main() {
 	flag.Visit(func(f *flag.Flag) { app.explicitFlags[f.Name] = true })
 	app.geoPath = geoPath
 	app.capsHost = strings.TrimSpace(*capsHost)
+	app.tlsEngineURL = strings.TrimSpace(*tlsEngine)
+	app.tlsEngineKey = strings.TrimSpace(*tlsEngineKey)
+	app.tlsEngineProfile = strings.TrimSpace(*tlsEngineProfile)
+	app.tlsEngineTimeout = time.Duration(*tlsEngineTo) * time.Second
+	app.tlsUpgrade = *tlsUpgrade
+	if app.tlsEngineURL != "" {
+		app.logf("modo uTLS activo: motor %s (perfil %s)", app.tlsEngineURL, app.tlsEngineProfile)
+		// Aviso (informativo) si la API del launcher del TLS_v13 esta
+		// expuesta en la red local. No se toca su configuracion.
+		go app.checkEngineExposure(9000)
+	}
 	app.anonURL = strings.TrimSpace(*anonURL)
 	app.harvestOutPath = *harvestOut
 	app.harvestMax = *harvestMaxLines

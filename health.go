@@ -88,7 +88,19 @@ func healthCheckBody(p *Proxy, testURL string, timeout time.Duration, maxBody in
 		if checkConnect {
 			// Modo CONNECT: valida que el proxy pueda tunelizar (lo que usa OB M2).
 			// Enviamos CONNECT al host:puerto del testURL y esperamos 200.
-			connectReq := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n", u.Host, u.Host)
+			//
+			// IMPORTANTE (auditoria 21/10/2026): aceptar el CONNECT NO es
+			// suficiente. Hay proxies "zombi" que responden 200 y luego no
+			// transportan NADA (el tunnel se queda colgado y el bot se queda
+			// esperando minutos). Por eso, tras el 200, se comprueba que el
+			// tunnel TRAE datos: si el destino es TLS (443) se hace el
+			// handshake; si no, una peticion minima y su linea de estado.
+			// Asi el pool solo contiene proxies que de verdad tunelizan.
+			addr := u.Host
+			if p2 := u.Port(); p2 == "" || p2 == "80" {
+				addr = host + ":443"
+			}
+			connectReq := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n", addr, addr)
 			if p.User != "" {
 				connectReq += "Proxy-Authorization: Basic " + basicToken(p.User, p.Password) + "\r\n"
 			}
@@ -112,6 +124,10 @@ func healthCheckBody(p *Proxy, testURL string, timeout time.Duration, maxBody in
 				if err != nil || h == "\r\n" || h == "\n" {
 					break
 				}
+			}
+			// Comprobar que el tunnel transporta de verdad.
+			if err := validarTunel(c, br, host, addr, timeout); err != nil {
+				return false, 0, ""
 			}
 			return true, int(time.Since(start).Milliseconds()), ""
 		}
@@ -321,6 +337,40 @@ func readBodyLimited(br *bufio.Reader, max int) string {
 	return string(b)
 }
 
+// validarTunel: comprueba que el tunel CONNECT transporta DATOS de verdad.
+// Un proxy puede responder "200 Connection Established" y luego no mover un
+// byte (proxy zombi): sin esta comprobacion el proxy pasa el chequeo y el
+// bot se queda colgado esperando la respuesta (o el motor uTLS se cuelga).
+//   - destino TLS (443): handshake TLS por el tunel.
+//   - destino normal: peticion minima y su linea de estado.
+func validarTunel(c net.Conn, br *bufio.Reader, host, addr string, timeout time.Duration) error {
+	_, portStr, _ := net.SplitHostPort(addr)
+	if portStr == "443" || portStr == "" {
+		tc := tls.Client(c, &tls.Config{
+			// #nosec G402 -- aqui no importa el certificado: solo se
+			// comprueba que el tunel transporta el handshake.
+			InsecureSkipVerify: true,
+			ServerName:         host,
+			MinVersion:         tls.VersionTLS10,
+			MaxVersion:         tls.VersionTLS13,
+		})
+		tc.SetDeadline(time.Now().Add(timeout))
+		if err := tc.Handshake(); err != nil {
+			return fmt.Errorf("el tunel no transporta TLS: %w", err)
+		}
+		return nil
+	}
+	c.SetDeadline(time.Now().Add(timeout))
+	if _, err := io.WriteString(c, "GET / HTTP/1.1\r\nHost: "+host+"\r\nConnection: close\r\n\r\n"); err != nil {
+		return fmt.Errorf("el tunel no escribe: %w", err)
+	}
+	line, err := readCappedLine(br, 8192)
+	if err != nil || !strings.HasPrefix(line, "HTTP/") {
+		return fmt.Errorf("el tunel no devuelve respuesta")
+	}
+	return nil
+}
+
 // healthCheck: wrapper booleano (compat con tests y usos existentes).
 func healthCheck(p *Proxy, testURL string) bool {
 	ok, _ := healthCheckFull(p, testURL, 5*time.Second, false)
@@ -509,7 +559,7 @@ func (a *App) runChecksScope(scope string) {
 			p.Checked = true
 			p.LastCheck = now
 			p.PingMs = 0
-			// "Â¿Tuneliza CONNECT?" para la ficha del proxy:
+			// "¿Tuneliza CONNECT?" para la ficha del proxy:
 			//  - socks: el chequeo YA es un tunel real -> se sabe seguro.
 			//  - http con --check-connect: el chequeo ES un CONNECT -> se sabe.
 			//  - http con GET: un GET ok no demuestra que tunelice -> desconocido.

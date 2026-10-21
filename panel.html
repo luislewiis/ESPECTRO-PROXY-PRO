@@ -636,6 +636,15 @@ td.ping{color:var(--faint);white-space:nowrap}
     </div>
 
     <div class="rcard solo-detalle">
+      <h3 onclick="fold(this)">Motor uTLS (TLS v13) <span class="chev">▾</span></h3>
+      <div class="rbody">
+        <div class="rrow"><span class="k">Estado</span><span class="v" id="tlsEngineState">—</span></div>
+        <div class="rrow"><span class="k">Perfil de huella</span><span class="v vi" id="tlsProfile">—</span></div>
+        <div class="rrow"><span class="k">Salida por el pool</span><span class="v" id="tlsViaPool">—</span></div>
+      </div>
+    </div>
+
+    <div class="rcard solo-detalle">
       <h3 onclick="fold(this)">Anonimato (medido) <span class="chev">▾</span></h3>
       <div class="rbody">
         <div class="rrow"><span class="k">★ Élite</span><span class="v ok" id="rElite">—</span></div>
@@ -774,7 +783,7 @@ td.ping{color:var(--faint);white-space:nowrap}
 
   <!-- cargar proxies -->
   <section class="sec" data-tab="pool">
-    <div class="sec-head"><h2 data-help="Anade proxies al pool: arrastra archivos, pega texto o pega una ruta del servidor. Los proxies se guardan en tu lista (.txt) y en memoria." data-help2="Tus listas locales (proxies.txt) y el pool.">Cargar proxies</h2><div class="line"></div></div>
+    <div class="sec-head"><h2 data-help="Añade proxies al pool: arrastra archivos, pega texto o pega una ruta del servidor. Los proxies se guardan en tu lista (.txt) y en memoria." data-help2="Tus listas locales (proxies.txt) y el pool.">Cargar proxies</h2><div class="line"></div></div>
     <div class="importcard">
       <div class="itabs">
         <button class="itab active" data-t="file" onclick="impTab(this)">Examinar / arrastrar</button>
@@ -828,7 +837,7 @@ td.ping{color:var(--faint);white-space:nowrap}
   <!-- checker masivo -->
   <section class="sec" id="massSection" data-tab="checker">
     <div class="sec-head">
-      <h2 data-help="Valida una lista externa con Site + Success Key (validacion de contenido real, estilo Proxy Checker by xRisky) y puede activar los que pasan al pool." data-help2="El judge externo, el GeoIP offline y el pool de proxies.">Checker Masivo</h2><div class="line"></div>
+      <h2 data-help="Valida una lista externa con Site + Success Key (validación de contenido real, estilo Proxy Checker by xRisky) y puede activar los que pasan al pool." data-help2="El judge externo, el GeoIP offline y el pool de proxies.">Checker Masivo</h2><div class="line"></div>
       <div class="dl">
         <a href="/checker/export?proto=all&amp;format=full">↓ vivos (full)</a>
         <a href="/checker/export?proto=http&amp;format=full">↓ http</a>
@@ -1005,7 +1014,7 @@ td.ping{color:var(--faint);white-space:nowrap}
   <!-- auto-fuentes (harvest.go): recoleccion continua + descubrimiento -->
   <section class="sec" id="harvestSection" data-tab="fuentes">
     <div class="sec-head">
-      <h2 data-help="Recolector automatico de proxies publicos: los anade al pool y los valida. Escribe en su propio archivo, nunca toca proxies.txt." data-help2="Las fuentes publicas y el archivo propio del recolector.">Auto-Fuentes</h2><div class="line"></div>
+      <h2 data-help="Recolector automático de proxies públicos: los añade al pool y los valida. Escribe en su propio archivo, nunca toca proxies.txt." data-help2="Las fuentes publicas y el archivo propio del recolector.">Auto-Fuentes</h2><div class="line"></div>
       <div class="dl"><a href="/harvest/export">↓ recolectado</a></div>
     </div>
     <div class="importcard">
@@ -1161,13 +1170,31 @@ td.ping{color:var(--faint);white-space:nowrap}
           </div>
         </div>
 
+        <div class="mrec" style="grid-column:1/-1">
+          <div class="t">uTLS · TLS v13 MASTER + OBM <span class="mtag">motor externo</span>
+            <span class="mcopy" onclick="copyText('rcUtls')">Copiar</span></div>
+          <div class="d">El <b>TLS_v13_MASTER</b> no es un proxy: habla <b>x-tls-url</b> y usa un motor Go (uTLS: chrome_131, firefox_120, safari_ios…). El gateway puede delegarle las peticiones <b>http://</b> (modo uTLS) y el motor sale por <b>este mismo pool</b>:
+            <ul style="margin:6px 0 0 18px">
+              <li>Arranca el gateway con <code style="display:inline;padding:1px 4px">--tls-engine http://127.0.0.1:9150 --tls-engine-key HVN-...</code></li>
+              <li>Las peticiones <b>https://</b> (CONNECT de OBM) siguen yendo por el pool normal: para aplicar uTLS ahi haria falta terminar el TLS aqui (y activar <i>Ignorar errores de certificado</i> en OB).</li>
+            </ul>
+          </div>
+          <code id="rcUtls">--tls-engine http://127.0.0.1:9150 --tls-engine-key HVN-... --tls-engine-profile chrome_131</code>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="primary" onclick="testTLSChain()" data-help="Prueba la cadena completa: motor uTLS -> gateway -> pool. Devuelve la IP de salida, el perfil de huella usado y si la IP es del pool (o sea, si NO salio con tu IP real)." data-help2="El motor TLS externo, este gateway y el pool de proxies.">🧪 Probar cadena uTLS</button>
+            <span class="muted" id="tlsTestOut" style="font-size:11.5px">sin probar en esta sesión</span>
+          </div>
+        </div>
+
+        <div class="mrec" style="grid-column:1/-1;border-color:rgba(251,113,133,.4)">
+          <div class="t" style="color:var(--red)">⚠ Aviso de seguridad <span class="mtag">LAN</span></div>
+          <div class="d" id="tlsWarnBox" style="display:none">El launcher del TLS_v13 expone su API en <b>0.0.0.0</b>: cualquiera de tu red puede usar tu motor uTLS y tu licencia. El motor Go (9150) sí es local. Fix: bloquea el puerto en el firewall de Windows.</div>
+        </div>
       </div>
     </div>
   </section>
-
-  <!-- ============ CONFIGURACION ============ -->
   <section class="sec" data-tab="config">
-    <div class="sec-head"><h2 data-help="Ajustes del gateway que se aplican en caliente y se guardan en settings.json: modo del chequeo, validacion GET/CONNECT, reintentos, intervalo, estrategia y Auto-Fuentes." data-help2="El archivo settings.json, el health-check y el pool de proxies.">Configuración</h2><div class="line"></div></div>
+    <div class="sec-head"><h2 data-help="Ajustes del gateway que se aplican en caliente y se guardan en settings.json: modo del chequeo, validación GET/CONNECT, reintentos, intervalo, estrategia y Auto-Fuentes." data-help2="El archivo settings.json, el health-check y el pool de proxies.">Configuración</h2><div class="line"></div></div>
     <div class="importcard" style="padding:14px 16px">
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
 
@@ -1718,6 +1745,7 @@ async function refresh(){
 
     updateRail(st);
     updateGuias(st);
+    refreshEngineState();
 
     const lines = (lg.lines || []);
     const txt = lines.join('\n') || '(vacío)';
@@ -2992,6 +3020,62 @@ function updateGuias(st){
   const e3 = el('rcEnv'); if (e3) e3.textContent = env;
   const curl = 'curl -x http://' + hostPort + ' https://api.ipify.org';
   const e4 = el('rcCurl'); if (e4) e4.textContent = curl;
+}
+
+// testTLSChain: prueba la cadena uTLS (motor -> gateway -> pool) y lo explica.
+async function testTLSChain(){
+  const out = el('tlsTestOut');
+  if (!out) return;
+  out.textContent = 'probando…';
+  try{
+    const r = await jpost('/tls-test?url=' + encodeURIComponent('https://api.ipify.org/'), {});
+    if (r && r.ok){
+      // Se construye con la API del DOM (sin innerHTML con datos del servidor).
+      out.textContent = '';
+      const b = document.createElement('b');
+      b.style.color = 'var(--cyan)';
+      b.textContent = r.ip || '';
+      out.appendChild(b);
+      out.appendChild(document.createTextNode(' · perfil ' + (r.profile || '-') +
+        ' · ' + (r.proto || '-') + ' · ' + (r.latency_ms || 0) + ' ms · '));
+      const b2 = document.createElement('b');
+      if (r.via_pool){
+        b2.style.color = 'var(--green)';
+        b2.textContent = 'sale por el pool';
+      } else {
+        b2.style.color = 'var(--red)';
+        b2.textContent = 'sale con TU IP real';
+      }
+      out.appendChild(b2);
+    } else {
+      out.textContent = 'fallo: ' + ((r && r.error) || 'sin respuesta');
+    }
+  }catch(e){
+    out.textContent = 'fallo: ' + e.message;
+  }
+  refreshEngineState();
+}
+
+// refreshEngineState: estado del motor uTLS + el aviso de exposicion en LAN.
+async function refreshEngineState(){
+  let s = null;
+  try{ s = await jget('/tls-engine'); }catch(e){ return; }
+  if (!s) return;
+  const box = el('tlsWarnBox');
+  if (box){
+    if (s.aviso){
+      box.style.display = 'block';
+      box.textContent = s.aviso;
+    } else {
+      box.style.display = 'none';
+    }
+  }
+  const o = el('tlsEngineState');
+  if (o){
+    if (!s.configurado) o.textContent = 'modo uTLS apagado (arranca el gateway con --tls-engine)';
+    else if (s.motor_ok) o.textContent = 'motor ' + (s.motor || '?') + ' · ' + (s.perfiles || 0) + ' perfiles · ' + (s.peticiones || 0) + ' peticiones servidas';
+    else o.textContent = 'motor configurado pero NO responde: ' + (s.motor_error || '');
+  }
 }
 
 // ================= HUB DE CONEXIONES (modal de recetas) =================

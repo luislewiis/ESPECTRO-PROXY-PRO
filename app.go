@@ -146,6 +146,19 @@ type App struct {
 	checkActive      atomic.Int64
 	checkRetriesUsed atomic.Int64
 
+	// Motor TLS externo (tlsengine.go): el TLS_v13_MASTER / HVN_TLS_Engine.
+	// Si tlsEngineURL esta vacio, el modo uTLS esta apagado.
+	tlsEngineURL      string        // p.ej. http://127.0.0.1:9150
+	tlsEngineKey      string        // cabecera X-HVN-Key
+	tlsEngineProfile  string        // perfil de huella (chrome_131, firefox_120...)
+	tlsEngineTimeout  time.Duration // timeout de la llamada al motor
+	tlsUpgrade        bool          // subir las peticiones http:// a https:// (para que la huella uTLS sirva)
+	tlsEngineWarn     string        // aviso de exposicion en red (API del launcher en 0.0.0.0)
+	tlsEngineLast     string        // resumen del ultimo test de cadena
+	tlsEngineLastAt   int64
+	tlsEngineLastOK   bool
+	tlsEngineSessions int // peticiones servidas por el motor
+
 	// IP publica de esta maquina (para clasificar transparencia).
 	realIP   string
 	realIPAt int64

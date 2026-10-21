@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	_ "embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -922,6 +923,90 @@ code{background:#0d1524;border:1px solid #1f2b40;border-radius:6px;padding:1px 7
 		}
 		a.logf("ajustes aplicados: %s", cur.CheckMode)
 		jsonOut(w, map[string]interface{}{"ok": true, "settings": cur})
+	})
+
+	mux.HandleFunc("/tls-test", func(w http.ResponseWriter, r *http.Request) {
+		// Prueba de la cadena uTLS: motor externo -> nuestro gateway -> pool.
+		// Devuelve la IP de salida, el perfil usado y si la IP es del pool
+		// (o sea: si el motor salio por los proxies y no por tu IP real).
+		if !a.allowPanel(w, r) {
+			return
+		}
+		if a.tlsEngineURL == "" {
+			jsonOut(w, map[string]interface{}{"ok": false, "error": "modo uTLS apagado (arranca con --tls-engine)"})
+			return
+		}
+		target := r.URL.Query().Get("url")
+		if target == "" {
+			target = "https://api.ipify.org/"
+		}
+		proxy := a.engineProxyFor(r.URL.Query().Get("session"), r.URL.Query().Get("country"), false)
+		rep, err := a.engineForward(tlsEngineRequest{
+			URL:             target,
+			Method:          "GET",
+			Profile:         a.tlsEngineProfile,
+			Proxy:           proxy,
+			TimeoutMS:       int(a.tlsEngineTimeout / time.Millisecond),
+			FollowRedirects: true,
+		})
+		if err != nil {
+			a.mu.Lock()
+			a.tlsEngineLast = err.Error()
+			a.tlsEngineLastAt = time.Now().Unix()
+			a.tlsEngineLastOK = false
+			a.mu.Unlock()
+			jsonOut(w, map[string]interface{}{"ok": false, "error": err.Error()})
+			return
+		}
+		body, _ := base64.StdEncoding.DecodeString(rep.BodyB64)
+		ip := strings.TrimSpace(string(body))
+		nuestra := a.getRealIP()
+		viaPool := nuestra != "" && ip != "" && ip != nuestra
+		resumen := fmt.Sprintf("%s | perfil %s | %s | %d ms", ip, rep.Profile, rep.Proto, rep.LatencyMS)
+		a.mu.Lock()
+		a.tlsEngineLast = resumen
+		a.tlsEngineLastAt = time.Now().Unix()
+		a.tlsEngineLastOK = true
+		a.mu.Unlock()
+		jsonOut(w, map[string]interface{}{
+			"ok": true, "ip": ip, "profile": rep.Profile, "proto": rep.Proto,
+			"latency_ms": rep.LatencyMS, "via_pool": viaPool, "our_ip": nuestra,
+			"status": rep.Status, "summary": resumen,
+		})
+	})
+
+	mux.HandleFunc("/tls-engine", func(w http.ResponseWriter, r *http.Request) {
+		// Estado del motor TLS externo + aviso de exposicion en red.
+		if !a.leerOK(w, r) {
+			return
+		}
+		a.mu.Lock()
+		out := map[string]interface{}{
+			"configurado": a.tlsEngineURL != "",
+			"url":         a.tlsEngineURL,
+			"profile":     a.tlsEngineProfile,
+			"upgrade":     a.tlsUpgrade,
+			"aviso":       a.tlsEngineWarn,
+			"ultimo":      a.tlsEngineLast,
+			"ultimo_ok":   a.tlsEngineLastOK,
+			"peticiones":  a.tlsEngineSessions,
+		}
+		a.mu.Unlock()
+		if a.tlsEngineURL != "" {
+			if ping, err := a.enginePing(); err == nil {
+				out["motor_ok"] = true
+				if e, ok := ping["engine"].(string); ok {
+					out["motor"] = e
+				}
+				if p, ok := ping["profiles"].([]interface{}); ok {
+					out["perfiles"] = len(p)
+				}
+			} else {
+				out["motor_ok"] = false
+				out["motor_error"] = err.Error()
+			}
+		}
+		jsonOut(w, out)
 	})
 
 	mux.HandleFunc("/remeasure", func(w http.ResponseWriter, r *http.Request) {
