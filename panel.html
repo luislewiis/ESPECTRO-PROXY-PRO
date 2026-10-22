@@ -1170,6 +1170,16 @@ td.ping{color:var(--faint);white-space:nowrap}
           </div>
         </div>
 
+        <div class="mrec" style="grid-column:1/-1;border-color:rgba(245,197,66,.4)">
+          <div class="t" style="color:var(--gold)">⚠ Importante para OBM M2 <span class="mtag">fuente remota</span></div>
+          <div class="d">En <b>Settings → Remote Proxy Sources</b> la URL de la fuente debe llevar el filtro; si no, OBM descarga <b>todas</b> las líneas (cientos de miles, muertos incluidos) y se queda parsesando y checkeando proxies:
+            <ul style="margin:6px 0 0 18px">
+              <li>Mal: <code style="display:inline;padding:1px 4px">http://127.0.0.1:8082</code> → devuelve el pool entero.</li>
+              <li>Bien: <code style="display:inline;padding:1px 4px">http://127.0.0.1:8081/proxy.txt?alive=1&amp;sort=ping&amp;max=300</code> → solo los 300 vivos más rápidos (con <b>Pattern</b> <code style="display:inline;padding:1px 4px">([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+)</code> y <b>Output</b> <code style="display:inline;padding:1px 4px">[1]</code>).</li>
+            </ul>
+          </div>
+        </div>
+
         <div class="mrec" style="grid-column:1/-1">
           <div class="t">uTLS · TLS v13 MASTER + OBM <span class="mtag">motor externo</span>
             <span class="mcopy" onclick="copyText('rcUtls')">Copiar</span></div>

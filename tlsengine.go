@@ -279,6 +279,7 @@ func (a *App) handleViaEngine(client net.Conn, method string, u *url.URL, h map[
 		return false
 	}
 	payload, _ := base64.StdEncoding.DecodeString(rep.BodyB64)
+	a.stats.Requests.Add(1)
 	if body != nil {
 		a.stats.BytesUp.Add(int64(len(body)))
 	}

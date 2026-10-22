@@ -444,6 +444,9 @@ func (a *App) handleConnect(client net.Conn, clientBr *bufio.Reader, target stri
 				}
 			}
 		}()
+		// El trafico por CONNECT (https de OB/SilverBullet) es REAL: se cuenta
+		// como peticion para que las metricas del panel no mientan.
+		a.stats.Requests.Add(1)
 		if !a.quiet {
 			a.logf("CONNECT %s via %s", target, p.Tag())
 		}
