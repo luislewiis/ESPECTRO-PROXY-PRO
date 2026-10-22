@@ -1171,12 +1171,18 @@ td.ping{color:var(--faint);white-space:nowrap}
         </div>
 
         <div class="mrec" style="grid-column:1/-1;border-color:rgba(245,197,66,.4)">
-          <div class="t" style="color:var(--gold)">⚠ Importante para OBM M2 <span class="mtag">fuente remota</span></div>
-          <div class="d">En <b>Settings → Remote Proxy Sources</b> la URL de la fuente debe llevar el filtro; si no, OBM descarga <b>todas</b> las líneas (cientos de miles, muertos incluidos) y se queda parsesando y checkeando proxies:
+          <div class="t" style="color:var(--gold)">⚠ OBM M2: proxy a mano vs. fuente remota <span class="mtag">no es lo mismo</span></div>
+          <div class="d">
+            <b>1) Para usar NUESTRO gateway (con rotación, sesión sticky y failover):</b> en la pestaña <b>Proxies</b> de OB, <b>añade el proxy a mano</b> (tipo HTTP):
             <ul style="margin:6px 0 0 18px">
-              <li>Mal: <code style="display:inline;padding:1px 4px">http://127.0.0.1:8082</code> → devuelve el pool entero.</li>
-              <li>Bien: <code style="display:inline;padding:1px 4px">http://127.0.0.1:8081/proxy.txt?alive=1&amp;sort=ping&amp;max=300</code> → solo los 300 vivos más rápidos (con <b>Pattern</b> <code style="display:inline;padding:1px 4px">([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+)</code> y <b>Output</b> <code style="display:inline;padding:1px 4px">[1]</code>).</li>
+              <li><code style="display:inline;padding:1px 4px">127.0.0.1:8082:MI_SESION:clave</code> → OB usa el gateway como único proxy y el gateway se encarga de todo.</li>
             </ul>
+            <b>2) La fuente remota es OTRA cosa:</b> OBM descarga esa URL y usa <b>cada línea como un proxy suelto</b> (saltándose el gateway y su failover). La URL debe apuntar a la <b>API (8081)</b>, no al puerto proxy:
+            <ul style="margin:6px 0 0 18px">
+              <li><code style="display:inline;padding:1px 4px">http://127.0.0.1:8081/proxy.txt?alive=1&amp;sort=ping&amp;max=300</code> → 300 vivos por ping (el <b>Pattern</b> <code style="display:inline;padding:1px 4px">([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+)</code> y <b>Output</b> <code style="display:inline;padding:1px 4px">[1]</code> los extraen).</li>
+              <li>Si pones <code style="display:inline;padding:1px 4px">http://127.0.0.1:8082</code> ahí, OBM pide una lista al <b>puerto del proxy</b> y recibe el mensaje de auto-check: <b>0 proxies</b>.</li>
+            </ul>
+            <b>3) Nunca Ban Proxy</b> activado + <b>Reload interval 0</b> = el runner se queda sin proxies válidos y <b>aborta</b> ("Aborted Runner"). Con la fuente remota, deja <b>Reload proxies when all banned</b> con intervalo 5-10 min (y sin Never Ban, para que los que fallen se baneen y se repongan).
           </div>
         </div>
 

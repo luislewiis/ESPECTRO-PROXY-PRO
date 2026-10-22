@@ -1,4 +1,4 @@
-﻿# ESPECTRO PROXY PRO (ProxyGateway)
+# ESPECTRO PROXY PRO (ProxyGateway)
 
 **ESPECTRO PROXY PRO** �€” gateway de rotación de proxies estilo Dataimpulse,
 escrito en Go (solo stdlib + go-webview2). Incluye panel WebView2,
@@ -95,26 +95,26 @@ Línea de proxy para pegar en OB M2 / SilverBullet (una sola):
 Con `--http-port 8082,823` esos mismos proxies valen por **cualquiera** de los
 puertos (los checkers nunca marcan ninguno como muerto).
 
-### Fuente remota en OB M2 / SilverBullet: usa tope de líneas
+### Conectar OB M2 / SilverBullet con el gateway
 
 Dos formas de conectar OB con el gateway, según quién gestione la rotación:
 
 | Modo | Qué pegas en OB | Quién rota / reintenta |
 |---|---|---|
-| **A (recomendado)** | una sola línea `127.0.0.1:823` (o `user-session-123:clave@127.0.0.1:823`) | el gateway: rota, reintenta en milisegundos y mantiene la sesión sticky. OB solo chequea **1** proxy |
-| **B** | fuente remota `/proxy.txt?alive=1&sort=ping&max=300` | OB: gestiona 300 proxies y los marca muertos por su cuenta |
+| **A (recomendado)** | En la pestaña **Proxies**, el proxy **a mano** (tipo HTTP): `127.0.0.1:8082:MI_SESION:clave` | el gateway: rota, reintenta en milisegundos y mantiene la sesión sticky. OB solo chequea **1** proxy |
+| **B** | En **Settings -> Remote Proxy Sources**: `http://127.0.0.1:8081/proxy.txt?alive=1&sort=ping&max=300` con `Pattern` `([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+)` y `Output` `[1]` | OB usa **cada línea como un proxy suelto**, saltándose el gateway y su failover |
 
-En `Settings �†’ RemoteProxySources` (OB M2) el campo se compone de `Url`,
-`Pattern` y `Output` (los mismos que ya usas con DataImpulse), con `Type: 0`
-(HTTP):
+**Ojo con el puerto:** la fuente remota debe apuntar a la **API (8081)**, no al
+puerto del proxy (8082). Si pones `http://127.0.0.1:8082` en la fuente, OBM
+pide una lista al puerto proxy y recibe el mensaje de auto-check → **0 proxies**.
 
-| Campo | Valor |
-|---|---|
-| `Url` | `http://127.0.0.1:8081/proxy.txt?alive=1&sort=ping&max=300` |
-| `Pattern` | `([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+)` |
-| `Output` | `[1]` |
+En OB, además: **"Never Ban Proxy" activado + "Reload interval 0"** deja al
+runner sin proxies válidos y **aborta** ("Aborted Runner"). Con la fuente
+remota, deja *Reload proxies when all banned* con intervalo 5-10 min y sin
+*Never Ban*, para que los que fallen se baneen y la lista se reponga.
 
-En SilverBullet basta la URL en la lista de *Proxy Sources*, tipo `HTTP`.
+En SilverBullet basta el proxy a mano (`127.0.0.1:8082:MI_SESION:clave`) o la
+URL en la lista de *Proxy Sources*, tipo `HTTP`.
 Si activas `--api-token`, añade `&token=TU_TOKEN` a la URL.
 
 ### TLS_NEW_v9 (uTLS "TLS GRUPO VIP"): qué es y cómo encadenarlo
